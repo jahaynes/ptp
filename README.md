@@ -1,2 +1,3 @@
-# ptp
-Part-time Parliament
+# Part-time Parliament
+
+Single-decree Paxos
