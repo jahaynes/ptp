@@ -7,20 +7,20 @@ import Servant
 import Servant.Client
 import Network.HTTP.Client (Manager)
 
-type ProposeClient = ProposeRequest -> IO (Either ServantError (Either String Value))
+type ProposeClient e = ProposeRequest -> IO (Either e (Either String Value))
 
-type PrepareClient = PrepareRequest -> IO (Either ServantError (Either Nack Promise))
+type PrepareClient e = PrepareRequest -> IO (Either e (Either Nack Promise))
 
-type AcceptClient = AcceptRequest -> IO (Either ServantError (Either String Value))
+type AcceptClient e = AcceptRequest -> IO (Either e (Either String Value))
 
-type LearnClient = LearnRequest -> IO (Either ServantError (Maybe Value))
+type LearnClient e = LearnRequest -> IO (Either e (Maybe Value))
 
-data NodeClient = NodeClient
-                { getProposeClient :: ProposeClient
-                , getPrepareClient :: PrepareClient
-                , getAcceptClient  :: AcceptClient
-                , getLearnClient   :: LearnClient
-                }
+data NodeClient e = NodeClient
+                 { getProposeClient :: ProposeClient e
+                 , getPrepareClient :: PrepareClient e
+                 , getAcceptClient  :: AcceptClient e
+                 , getLearnClient   :: LearnClient e
+                 }
 
 propose :: ProposeRequest -> ClientM (Either String Value)
 prepare :: PrepareRequest -> ClientM (Either Nack Promise)
@@ -28,7 +28,7 @@ accept ::  AcceptRequest  -> ClientM (Either String Value)
 learn ::   LearnRequest   -> ClientM (Maybe Value)
 propose :<|> prepare :<|> accept :<|> learn = client (Proxy :: Proxy NodeApi)
 
-makeClients :: Manager -> String -> Int -> NodeClient
+makeClients :: Manager -> String -> Int -> NodeClient ClientError
 makeClients http hostname port =
     let env = mkClientEnv http (BaseUrl Http hostname port "")
     in NodeClient (\prop -> runClientM (propose prop) env)

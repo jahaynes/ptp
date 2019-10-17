@@ -16,7 +16,7 @@ import Safe                     (headMay)
 
 newtype NodeId = NodeId Int deriving (Eq, Ord)
 
-doProposal :: ProposalNumber -> Value -> Map NodeId NodeClient -> IO (Either String Value)
+doProposal :: Show e => ProposalNumber -> Value -> Map NodeId (NodeClient e) -> IO (Either String Value)
 doProposal pn defaultVal clients = do
 
     eQuorum <- doPrepares pn clients
@@ -63,18 +63,18 @@ data PrepareFail e = Nacked Nack
 data NodePromise = NodePromise { getNodeId  :: !NodeId,
                                  getPromise :: !Promise }
 
-doPrepares :: ProposalNumber -> Map NodeId NodeClient -> IO (Either [PrepareFail String] [NodePromise])
+doPrepares :: Show e => ProposalNumber -> Map NodeId (NodeClient e) -> IO (Either [PrepareFail String] [NodePromise])
 doPrepares n = asyncMajority . map doPrepare . M.toList
 
     where
-    doPrepare :: (NodeId, NodeClient) -> IO (Either (PrepareFail String) NodePromise)
+    doPrepare :: Show e => (NodeId, NodeClient e) -> IO (Either (PrepareFail String) NodePromise)
     doPrepare (i, c) = handle <$> getPrepareClient c (PrepareRequest n)
         where
         handle (Left  servantError) = Left  $ Bad (show servantError)
         handle (Right  (Left nack)) = Left  $ Nacked nack
         handle (Right (Right prom)) = Right $ NodePromise i prom
 
-doAccepts :: AcceptRequest -> [NodeClient] -> IO (Either String Value)
+doAccepts :: AcceptRequest -> [NodeClient e] -> IO (Either String Value)
 doAccepts acceptRequest responsiveClients = do
     successes <- rights <$> mapConcurrently ((\c -> c acceptRequest) . getAcceptClient) responsiveClients
     pure $ case headMay $ rights successes of

@@ -29,7 +29,7 @@ data AcceptorState = AcceptorState { acc_notLessThan :: Maybe ProposalNumber
 data LearnerState = LearnerState { lrn_acceptedProposals :: Map String Value
                                  , lrn_consensus         :: Maybe Value }
 
-runNode :: Int -> String -> [NodeClient] -> Int -> IO ()
+runNode :: Show e => Int -> String -> [NodeClient e] -> Int -> IO ()
 runNode numAcceptors myId clients port = do
 
     proposerState <- ProposerState <$> newProposalNumber
