@@ -14,7 +14,7 @@ newtype ProposeRequest = ProposeRequest Value
 newtype PrepareRequest = PrepareRequest ProposalNumber
                              deriving (Generic, FromJSON, ToJSON)
 
-data AcceptRequest = AcceptRequest ProposalNumber Value
+data AcceptRequest = AcceptRequest !ProposalNumber !Value
                           deriving (Generic, FromJSON, ToJSON)
 
 newtype Value = Value String
@@ -24,11 +24,11 @@ data Proposal = Proposal { getProposalNumber :: !ProposalNumber
                          , getProposalValue  :: !Value }
                              deriving (Generic, FromJSON, ToJSON)
 
-data Promise = Promise { prom_notLessThan     :: ProposalNumber
-                       , prom_highestProposal :: Maybe Proposal }
+data Promise = Promise { prom_notLessThan     :: !ProposalNumber
+                       , prom_highestProposal :: !(Maybe Proposal) }
                            deriving (Generic, FromJSON, ToJSON)
 
-data LearnRequest = LearnRequest String Value
+data LearnRequest = LearnRequest !String !Value
                            deriving (Generic, FromJSON, ToJSON)
 
 newtype Nack = Nack ProposalNumber

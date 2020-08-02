@@ -16,11 +16,11 @@ type AcceptClient e = AcceptRequest -> IO (Either e (Either String Value))
 type LearnClient e = LearnRequest -> IO (Either e (Maybe Value))
 
 data NodeClient e = NodeClient
-                 { getProposeClient :: ProposeClient e
-                 , getPrepareClient :: PrepareClient e
-                 , getAcceptClient  :: AcceptClient e
-                 , getLearnClient   :: LearnClient e
-                 }
+                  { getProposeClient :: !(ProposeClient e)
+                  , getPrepareClient :: !(PrepareClient e)
+                  , getAcceptClient  :: !(AcceptClient e)
+                  , getLearnClient   :: !(LearnClient e)
+                  }
 
 propose :: ProposeRequest -> ClientM (Either String Value)
 prepare :: PrepareRequest -> ClientM (Either Nack Promise)

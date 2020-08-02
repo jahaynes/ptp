@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import ProposalNumber
-import Types
-import WebNode
-import WebNodeClient
+import ProposalNumber           (Uniq (..), randomUniq)
+import Types                    (ProposeRequest (..), Value (..))
+import WebNode                  (runNode)
+import WebNodeClient            (getProposeClient, makeClients)
 
-import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async
+import Control.Concurrent       (threadDelay)
+import Control.Concurrent.Async (async, mapConcurrently)
 import Network.HTTP.Client
 
 main :: IO ()

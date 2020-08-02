@@ -2,32 +2,32 @@
 
 module WebNode where
 
-import NodeApi                  (NodeApi)
-import Proposal                 (NodeId(NodeId), doProposal)
-import ProposalNumber           (ProposalNumber, newProposalNumber)
-import Quorum                   (threshold, majority)
+import NodeApi        (NodeApi)
+import Proposal       (NodeId(NodeId), doProposal)
+import ProposalNumber (ProposalNumber, newProposalNumber)
+import Quorum         (threshold, majority)
 import Types
-import WebNodeClient            (NodeClient, getLearnClient)
+import WebNodeClient  (NodeClient, getLearnClient)
 
-import Control.Concurrent.Async (async, wait)
-import Control.Concurrent.STM
-import Control.Monad.IO.Class   (MonadIO, liftIO)
-import Data.Either              (rights)
+import           Control.Concurrent.Async (async, wait)
+import           Control.Concurrent.STM   (TVar, atomically, newTVarIO, readTVar, writeTVar)
+import           Control.Monad.IO.Class   (MonadIO, liftIO)
+import           Data.Either              (rights)
 import qualified Data.Map as M
-import Data.Map                 (Map)
-import Data.Maybe               (fromJust, catMaybes)
-import Data.Proxy               (Proxy (Proxy))
-import Network.Wai.Handler.Warp (run)
-import Servant                  (serve)
-import Servant.API
+import           Data.Map                 (Map)
+import           Data.Maybe               (fromJust, catMaybes)
+import           Data.Proxy               (Proxy (Proxy))
+import           Network.Wai.Handler.Warp (run)
+import           Servant                  (serve)
+import           Servant.API
 
 newtype ProposerState = ProposerState { getPropNum :: ProposalNumber }
 
-data AcceptorState = AcceptorState { acc_notLessThan :: Maybe ProposalNumber
-                                   , acc_proposal    :: Maybe Proposal }
+data AcceptorState = AcceptorState { acc_notLessThan :: !(Maybe ProposalNumber)
+                                   , acc_proposal    :: !(Maybe Proposal) }
 
-data LearnerState = LearnerState { lrn_acceptedProposals :: Map String Value
-                                 , lrn_consensus         :: Maybe Value }
+data LearnerState = LearnerState { lrn_acceptedProposals :: !(Map String Value)
+                                 , lrn_consensus         :: !(Maybe Value) }
 
 runNode :: Show e => Int -> String -> [NodeClient e] -> Int -> IO ()
 runNode numAcceptors myId clients port = do
@@ -46,13 +46,17 @@ runNode numAcceptors myId clients port = do
                                            :<|> learnImpl learnerState
 
     where
-    proposeImpl :: MonadIO m => ProposerState -> ProposeRequest -> m (Either String Value)
+    proposeImpl :: MonadIO m => ProposerState
+                             -> ProposeRequest
+                             -> m (Either String Value)
     proposeImpl proposerState (ProposeRequest value) = liftIO $ do
 
         let clientMap = M.fromList $ zip (map NodeId [1..]) clients
         doProposal (getPropNum proposerState) value clientMap
 
-    prepareImpl :: MonadIO m => TVar AcceptorState -> PrepareRequest -> m (Either Nack Promise)
+    prepareImpl :: MonadIO m => TVar AcceptorState
+                             -> PrepareRequest
+                             -> m (Either Nack Promise)
     prepareImpl acceptorState (PrepareRequest n) = liftIO . atomically $ do
         state <- readTVar acceptorState
         if Just n > acc_notLessThan state
@@ -82,20 +86,21 @@ runNode numAcceptors myId clients port = do
                 learnerResponses <- rights <$> mapM wait aLearnerResponses
 
                 -- Consider every consensus claimed by a learner
-                case catMaybes learnerResponses of
-                    []     -> pure $ Left "No consensus (yet)"
-                    (c:cs) ->
-                        -- Sanity check
-                        if all (==c) cs
-                            then pure $ Right c
-                            else pure $ Left "Fatal: Inconsistent consensus"
+                pure $ case catMaybes learnerResponses of
 
-                else pure $ Left "Not accepted"
+                           []     -> Left "No consensus (yet)"
+
+                             -- Sanity check
+                           (c:cs) | all (==c) cs -> Right c
+
+                                  | otherwise -> Left "Fatal: Inconsistent consensus"
+
+            else pure $ Left "Not accepted"
 
     learnImpl :: MonadIO m => TVar LearnerState -> LearnRequest -> m (Maybe Value)
     learnImpl learnerState (LearnRequest acceptorId value) = liftIO $ do
 
-        (a,newLearnt) <- atomically $ do
+        (a, newLearnt) <- atomically $ do
 
             LearnerState as mc <- readTVar learnerState
 

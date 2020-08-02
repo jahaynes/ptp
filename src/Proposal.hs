@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Proposal where
 
 import ProposalNumber
@@ -16,54 +18,56 @@ import Safe                     (headMay)
 
 newtype NodeId = NodeId Int deriving (Eq, Ord)
 
-doProposal :: Show e => ProposalNumber -> Value -> Map NodeId (NodeClient e) -> IO (Either String Value)
-doProposal pn defaultVal clients = do
+doProposal :: Show e => ProposalNumber
+                     -> Value
+                     -> Map NodeId (NodeClient e)
+                     -> IO (Either String Value)
+doProposal pn defaultVal clients =
 
-    eQuorum <- doPrepares pn clients
+    doPrepares pn clients >>= \case
 
-    case eQuorum of
+        Left errors -> case highestNackRoundNo errors of
+                           Nothing  -> pure . Left $ "No highestNackRoundNo"
+                           Just hrn -> doProposal pn {getRoundNo = succ hrn} defaultVal clients
 
-        Left errors -> handle errors
+        Right quorum -> do
 
-        Right quorum -> doAccepts (AcceptRequest pn (valueToUse quorum)) (getResponsiveClients quorum)
+            let valueToUse = fromMaybe defaultVal
+                           . highestNumberedValue 
+                           . map getPromise
+                           $ quorum
+
+            let responsiveClients = map (\k -> fromJust $ M.lookup k clients)
+                                  . map getNodeId
+                                  $ quorum
+
+            doAccepts (AcceptRequest pn valueToUse) responsiveClients
 
     where
-    getResponsiveClients = map ((\k -> fromJust $ M.lookup k clients) . getNodeId)
-
-    valueToUse = fromMaybe defaultVal
-               . highestNumberedValue 
-               . map getPromise
-
+    highestNackRoundNo :: [PrepareFail e] -> Maybe Int
+    highestNackRoundNo = go Nothing
         where
-        highestNumberedValue :: [Promise] -> Maybe Value
-        highestNumberedValue promises = f (mapMaybe prom_highestProposal promises)
-            where
-            f [] = Nothing
-            f rs = Just . getProposalValue
-                        . maximumBy (comparing getProposalNumber)
-                        $ rs
+        go acc                    [] = getRoundNo <$> acc
+        go acc            (Bad _:xs) = go acc xs
+        go acc (Nacked (Nack na):xs) = go (max (Just na) acc) xs
 
-    handle :: [PrepareFail e] -> IO (Either String Value)
-    handle errors =
-        case highestNackRoundNo errors of
-            Nothing -> pure . Left $ "No highestNackRoundNo"
-            Just hrn -> doProposal pn {getRoundNo = succ hrn} defaultVal clients
-
+    highestNumberedValue :: [Promise] -> Maybe Value
+    highestNumberedValue promises = f (mapMaybe prom_highestProposal promises)
         where
-        highestNackRoundNo :: [PrepareFail e] -> Maybe Int
-        highestNackRoundNo = go Nothing
-            where
-            go acc                    [] = getRoundNo <$> acc
-            go acc            (Bad _:xs) = go acc xs
-            go acc (Nacked (Nack na):xs) = go (max (Just na) acc) xs
+        f [] = Nothing
+        f rs = Just . getProposalValue
+                    . maximumBy (comparing getProposalNumber)
+                    $ rs
 
-data PrepareFail e = Nacked Nack
-                   | Bad e
+data PrepareFail e = Nacked !Nack
+                   | Bad !e
 
 data NodePromise = NodePromise { getNodeId  :: !NodeId,
                                  getPromise :: !Promise }
 
-doPrepares :: Show e => ProposalNumber -> Map NodeId (NodeClient e) -> IO (Either [PrepareFail String] [NodePromise])
+doPrepares :: Show e => ProposalNumber
+                     -> Map NodeId (NodeClient e)
+                     -> IO (Either [PrepareFail String] [NodePromise])
 doPrepares n = asyncMajority . map doPrepare . M.toList
 
     where
@@ -76,7 +80,11 @@ doPrepares n = asyncMajority . map doPrepare . M.toList
 
 doAccepts :: AcceptRequest -> [NodeClient e] -> IO (Either String Value)
 doAccepts acceptRequest responsiveClients = do
-    successes <- rights <$> mapConcurrently ((\c -> c acceptRequest) . getAcceptClient) responsiveClients
-    pure $ case headMay $ rights successes of
-               Just v  -> Right v
-               Nothing -> Left "Not accepted"
+
+    let acceptClients = map getAcceptClient responsiveClients
+
+    headMay . rights . rights <$> mapConcurrently (\c -> c acceptRequest) acceptClients >>= \case
+
+        Just v  -> pure $ Right v
+
+        Nothing -> pure $ Left "Not accepted"
