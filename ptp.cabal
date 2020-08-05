@@ -9,7 +9,15 @@ cabal-version:       >=1.10
 executable ptp
   main-is:             Main.hs
   hs-source-dirs:      src
-  other-modules:       NodeApi, Proposal, ProposalNumber, Quorum, Types, WebNode, WebNodeClient
+  other-modules:       Client.WebNodeClient,
+                       Server.NodeApi,
+                       Server.Paxos.Acceptor,
+                       Server.Paxos.Learner,
+                       Server.Paxos.Proposer,
+                       Server.WebNode,
+                       ProposalNumber,
+                       Quorum,
+                       Types
   build-depends:       aeson, async, base, containers, hashable, http-client, safe, servant, servant-client, servant-server, stm, wai, uuid, warp
   default-language:    Haskell2010
   ghc-options:         -O3 -Wall -threaded
