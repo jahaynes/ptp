@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds,
              TypeOperators #-}
 
-module NodeApi where
+module Server.NodeApi where
 
 import Types
 
@@ -14,3 +14,5 @@ type NodeApi = "proposer" :> "propose" :> ReqBody '[JSON] ProposeRequest :> Post
           :<|> "acceptor" :> "accept"  :> ReqBody '[JSON] AcceptRequest  :> Post '[JSON] (Either String Value)
 
           :<|> "learner"  :> "learn"   :> ReqBody '[JSON] LearnRequest   :> Post '[JSON] (Maybe Value)
+
+          :<|> "learner"  :> "check"   :> Get '[JSON] (Maybe Value)

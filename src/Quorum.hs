@@ -25,8 +25,8 @@ asyncMajority ioJobs = do
                 Left  l -> modifyTVar' tFail (l:)
 
     atomically $ do
-        done <- readTVar tDone
-        failed <- readTVar tFail
+        done      <- readTVar tDone
+        failed    <- readTVar tFail
         remaining <- readTVar tRemaining
 
         let tieOutcome  = remaining == 0 && length done == length failed 
