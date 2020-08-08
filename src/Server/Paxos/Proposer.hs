@@ -17,6 +17,7 @@ import           Data.Map.Strict          (Map)
 import qualified Data.Map.Strict as M
 import           Data.Maybe               (fromJust, fromMaybe, mapMaybe)
 import           Data.Ord                 (comparing)
+import           Data.Word                (Word64)
 import           Safe                     (headMay)
 
 newtype ProposerState = ProposerState { getPropNum :: ProposalNumber }
@@ -34,22 +35,22 @@ proposeService :: Show e => [NodeClient e]
                          -> ProposerState
                          -> ProposeRequest
                          -> IO (Either String Value)
-proposeService clients proposerState (ProposeRequest value) = liftIO $ do
+proposeService clients proposerState (ProposeRequest key value) = liftIO $ do
     let clientMap = M.fromList $ zip (map NodeId [1..]) clients
-    doProposal (getPropNum proposerState) value clientMap
+    doProposal key (getPropNum proposerState) value clientMap
 
-
-doProposal :: Show e => ProposalNumber
+doProposal :: Show e => Key
+                     -> ProposalNumber
                      -> Value
                      -> Map NodeId (NodeClient e)
                      -> IO (Either String Value)
-doProposal pn defaultVal clients =
+doProposal key pn defaultVal clients =
 
-    doPrepares pn clients >>= \case
+    doPrepares key pn clients >>= \case
 
         Left errors -> case highestNackRoundNo errors of
                            Nothing  -> pure . Left $ "No highestNackRoundNo"
-                           Just hrn -> doProposal pn {getRoundNo = succ hrn} defaultVal clients
+                           Just hrn -> doProposal key pn {getRoundNo = succ hrn} defaultVal clients
 
         Right quorum -> do
 
@@ -62,10 +63,10 @@ doProposal pn defaultVal clients =
                                   . map getNodeId
                                   $ quorum
 
-            doAccepts (AcceptRequest pn valueToUse) responsiveClients
+            doAccepts (AcceptRequest key pn valueToUse) responsiveClients
 
     where
-    highestNackRoundNo :: [PrepareFail e] -> Maybe Int
+    highestNackRoundNo :: [PrepareFail e] -> Maybe Word64
     highestNackRoundNo = go Nothing
         where
         go acc                    [] = getRoundNo <$> acc
@@ -86,14 +87,15 @@ data PrepareFail e = Nacked !Nack
 data NodePromise = NodePromise { getNodeId  :: !NodeId,
                                  getPromise :: !Promise }
 
-doPrepares :: Show e => ProposalNumber
+doPrepares :: Show e => Key
+                     -> ProposalNumber
                      -> Map NodeId (NodeClient e)
                      -> IO (Either [PrepareFail String] [NodePromise])
-doPrepares n = asyncMajority . map doPrepare . M.toList
+doPrepares key n = asyncMajority . map doPrepare . M.toList
 
     where
     doPrepare :: Show e => (NodeId, NodeClient e) -> IO (Either (PrepareFail String) NodePromise)
-    doPrepare (i, c) = handle <$> getPrepareClient c (PrepareRequest n)
+    doPrepare (i, c) = handle <$> getPrepareClient c (PrepareRequest key n)
         where
         handle (Left  servantError) = Left  $ Bad (show servantError)
         handle (Right  (Left nack)) = Left  $ Nacked nack

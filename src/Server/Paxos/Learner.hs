@@ -1,40 +1,64 @@
+{-# LANGUAGE LambdaCase,
+             ScopedTypeVariables #-}
+
 module Server.Paxos.Learner ( Learner (..)
                             , create
                             ) where
 
-import Quorum (threshold, majority)
+import Quorum                    (threshold, majority)
+import Server.Files
+import Server.Keylocks
+import Server.Paxos.LearnerState
 import Types
 
-import           Control.Concurrent.STM   (TVar, atomically, newTVarIO, readTVar, writeTVar)
-import           Control.Monad.IO.Class   (MonadIO, liftIO)
+import           Control.Monad.IO.Class  (MonadIO, liftIO)
 import qualified Data.Map.Strict as M
-import           Data.Map.Strict          (Map)
 
-data LearnerState = LearnerState { _lrn_acceptedProposals :: !(Map Id Value)
-                                 , lrn_consensus         :: !(Maybe Value) }
-
-data Learner m = Learner { learn :: !(LearnRequest -> m (Maybe Value))
-                         , check :: !(m (Maybe Value))
+data Learner m = Learner { learn       :: !(LearnRequest -> m (Maybe Value))
+                         , check       :: !(Key -> m (Maybe Value))
+                         , dbgPurgeKey :: !(Key -> m ())
                          }
 
-create :: MonadIO m => Int -> IO (Learner m)
-create numAcceptors = do 
-    state <- newTVarIO (LearnerState M.empty Nothing)
-    pure $ Learner { learn = liftIO . learnService state numAcceptors
-                   , check = liftIO $ checkImpl state
+create :: MonadIO m => Id -> Int -> IO (Learner m)
+create myId numAcceptors = do
+
+    keyLocks <- newLocks
+
+    let getLearnerState :: Locked Key -> IO LearnerState
+            = \key -> readState myId key "ls" >>= \case
+                            Just f  -> pure f
+                            Nothing -> pure $ LearnerState M.empty Nothing
+
+    let putLearnerState :: Locked Key -> LearnerState -> IO ()
+            = \key learnerState -> writeState myId key "ls" learnerState
+
+    let purge key =
+            withLockedKey keyLocks key $ \lockedKey ->
+                deleteState myId lockedKey "ls"
+
+    pure $ Learner { learn       = liftIO . learnService keyLocks getLearnerState putLearnerState numAcceptors
+                   , check       = liftIO . checkImpl keyLocks getLearnerState
+                   , dbgPurgeKey = liftIO . purge
                    }
 
-learnService :: TVar LearnerState
+learnService :: Locks Key
+             -> (Locked Key -> IO LearnerState)
+             -> (Locked Key -> LearnerState -> IO ())
              -> Int
              -> LearnRequest
              -> IO (Maybe Value)
-learnService learnerState numAcceptors (LearnRequest acceptorId value) =
-    liftIO . atomically $ do
+learnService keyLocks
+             getLearnerState
+             putLearnerState
+             numAcceptors
+             (LearnRequest key acceptorId value) =
 
-        LearnerState as mc <- readTVar learnerState
+    withLockedKey keyLocks key $ \lockedKey -> do 
+
+        LearnerState as mc <- getLearnerState lockedKey
 
         let as' = M.insert acceptorId value as
-        writeTVar learnerState $! LearnerState as' mc
+        putLearnerState lockedKey $! LearnerState as' mc
 
         case mc of
             Just c  -> pure $ Just c
@@ -43,9 +67,10 @@ learnService learnerState numAcceptors (LearnRequest acceptorId value) =
                 case majority values (threshold numAcceptors) of
                     Nothing  -> pure Nothing
                     Just maj -> do
-                        writeTVar learnerState (LearnerState as' (Just maj))
+                        putLearnerState lockedKey $! LearnerState as' (Just maj)
                         pure $ Just maj
 
-checkImpl :: TVar LearnerState -> IO (Maybe Value)
-checkImpl learnerState = atomically $ do
-    lrn_consensus <$> readTVar learnerState
+checkImpl :: Locks Key -> (Locked Key -> IO LearnerState) -> Key -> IO (Maybe Value)
+checkImpl keyLocks getLearnerState key =
+    withLockedKey keyLocks key $ \lockedKey ->
+        lrn_consensus <$> getLearnerState lockedKey

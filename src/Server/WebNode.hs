@@ -22,11 +22,13 @@ create :: Show e => Int
 create numAcceptors port myId clients = do
     proposer <- P.create clients
     acceptor <- A.create myId clients
-    learner  <- L.create numAcceptors
+    learner  <- L.create myId numAcceptors
     pure $ Node { runNode = run port $ serve (Proxy :: Proxy NodeApi)
                                      $    P.propose proposer
                                      :<|> A.prepare acceptor
                                      :<|> A.accept acceptor
+                                     :<|> A.dbgPurgeKey acceptor
                                      :<|> L.learn learner
                                      :<|> L.check learner
+                                     :<|> L.dbgPurgeKey learner
                 }

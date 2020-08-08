@@ -13,6 +13,10 @@ type NodeApi = "proposer" :> "propose" :> ReqBody '[JSON] ProposeRequest :> Post
 
           :<|> "acceptor" :> "accept"  :> ReqBody '[JSON] AcceptRequest  :> Post '[JSON] (Either String Value)
 
+          :<|> "accepter" :> "purge"   :> ReqBody '[JSON] Key            :> Post '[JSON] ()
+
           :<|> "learner"  :> "learn"   :> ReqBody '[JSON] LearnRequest   :> Post '[JSON] (Maybe Value)
 
-          :<|> "learner"  :> "check"   :> Get '[JSON] (Maybe Value)
+          :<|> "learner"  :> "check"   :> ReqBody '[JSON] Key            :> Get  '[JSON] (Maybe Value)
+
+          :<|> "learner"  :> "purge"   :> ReqBody '[JSON] Key            :> Post '[JSON] ()
