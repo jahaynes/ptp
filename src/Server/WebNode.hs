@@ -1,11 +1,11 @@
 module Server.WebNode where
 
 import           Client.WebNodeClient       (NodeClient)
+import           Entity.Id
 import           Server.NodeApi             (NodeApi)
 import qualified Server.Paxos.Acceptor as A
 import qualified Server.Paxos.Learner  as L
 import qualified Server.Paxos.Proposer as P
-import           Types                      (Id)
 
 import Data.Proxy               (Proxy (Proxy))
 import Network.Wai.Handler.Warp (run)

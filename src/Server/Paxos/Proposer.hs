@@ -4,10 +4,19 @@ module Server.Paxos.Proposer ( Proposer (..)
                              , create
                              ) where
 
-import Client.WebNodeClient (NodeClient (..))
-import ProposalNumber       (ProposalNumber (..), newProposalNumber)
+import Client.WebNodeClient  (NodeClient (..))
+import Entity.AcceptRequest
+import Entity.Key
+import Entity.Nack
+import Entity.PrepareRequest
+import Entity.PrepareResponse
+import Entity.Promise
+import Entity.Proposal
+import Entity.ProposalNumber (ProposalNumber (..), newProposalNumber)
+import Entity.ProposeRequest
+import Entity.Value
+import Entity.ValueResponse
 import Quorum
-import Types
 
 import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Monad.IO.Class   (MonadIO, liftIO)
@@ -22,7 +31,7 @@ import           Safe                     (headMay)
 
 newtype ProposerState = ProposerState { getPropNum :: ProposalNumber }
 
-newtype Proposer m = Proposer { propose :: ProposeRequest -> m (Either String Value) }
+newtype Proposer m = Proposer { propose :: ProposeRequest -> m ValueResponseE }
 
 newtype NodeId = NodeId Int deriving (Eq, Ord)
 
@@ -34,10 +43,10 @@ create clients = do
 proposeService :: Show e => [NodeClient e] 
                          -> ProposerState
                          -> ProposeRequest
-                         -> IO (Either String Value)
+                         -> IO ValueResponseE
 proposeService clients proposerState (ProposeRequest key value) = liftIO $ do
     let clientMap = M.fromList $ zip (map NodeId [1..]) clients
-    doProposal key (getPropNum proposerState) value clientMap
+    ValueResponseE <$> doProposal key (getPropNum proposerState) value clientMap
 
 doProposal :: Show e => Key
                      -> ProposalNumber
@@ -95,18 +104,18 @@ doPrepares key n = asyncMajority . map doPrepare . M.toList
 
     where
     doPrepare :: Show e => (NodeId, NodeClient e) -> IO (Either (PrepareFail String) NodePromise)
-    doPrepare (i, c) = handle <$> getPrepareClient c (PrepareRequest key n)
+    doPrepare (i, c) = handle . fmap (\(PrepareResponse r) -> r) <$> getPrepareClient c (PrepareRequest key n)
         where
-        handle (Left  servantError) = Left  $ Bad (show servantError)
-        handle (Right  (Left nack)) = Left  $ Nacked nack
-        handle (Right (Right prom)) = Right $ NodePromise i prom
+        handle ((Left  servantError)) = Left  $ Bad (show servantError)
+        handle ((Right  (Left nack))) = Left  $ Nacked nack
+        handle ((Right (Right prom))) = Right $ NodePromise i prom
 
 doAccepts :: AcceptRequest -> [NodeClient e] -> IO (Either String Value)
 doAccepts acceptRequest responsiveClients = do
 
     let acceptClients = map getAcceptClient responsiveClients
 
-    headMay . rights . rights <$> mapConcurrently (\c -> c acceptRequest) acceptClients >>= \case
+    headMay . rights . rights . map (fmap (\(ValueResponseE r) -> r)) <$> mapConcurrently (\c -> c acceptRequest) acceptClients >>= \case
 
         Just v  -> pure $ Right v
 

@@ -3,20 +3,27 @@
 
 module Server.NodeApi where
 
-import Types
+import Entity.AcceptRequest
+import Entity.EmptyResponse
+import Entity.Key
+import Entity.LearnRequest
+import Entity.PrepareRequest
+import Entity.PrepareResponse
+import Entity.ProposeRequest
+import Entity.ValueResponse
 
 import Servant.API
 
-type NodeApi = "proposer" :> "propose" :> ReqBody '[JSON] ProposeRequest :> Post '[JSON] (Either String Value)
+type NodeApi = "proposer" :> "propose" :> ReqBody '[OctetStream] ProposeRequest :> Post '[OctetStream] ValueResponseE
 
-          :<|> "acceptor" :> "prepare" :> ReqBody '[JSON] PrepareRequest :> Post '[JSON] (Either Nack Promise)
+          :<|> "acceptor" :> "prepare" :> ReqBody '[OctetStream] PrepareRequest :> Post '[OctetStream] PrepareResponse
 
-          :<|> "acceptor" :> "accept"  :> ReqBody '[JSON] AcceptRequest  :> Post '[JSON] (Either String Value)
+          :<|> "acceptor" :> "accept"  :> ReqBody '[OctetStream] AcceptRequest  :> Post '[OctetStream] ValueResponseE
 
-          :<|> "acceptor" :> "purge"   :> ReqBody '[JSON] Key            :> Post '[JSON] ()
+          :<|> "acceptor" :> "purge"   :> ReqBody '[OctetStream] Key            :> Post '[OctetStream] EmptyResponse
 
-          :<|> "learner"  :> "learn"   :> ReqBody '[JSON] LearnRequest   :> Post '[JSON] (Maybe Value)
+          :<|> "learner"  :> "learn"   :> ReqBody '[OctetStream] LearnRequest   :> Post '[OctetStream] ValueResponseM
 
-          :<|> "learner"  :> "check"   :> ReqBody '[JSON] Key            :> Get  '[JSON] (Maybe Value)
+          :<|> "learner"  :> "check"   :> ReqBody '[OctetStream] Key            :> Get  '[OctetStream] ValueResponseM
 
-          :<|> "learner"  :> "purge"   :> ReqBody '[JSON] Key            :> Post '[JSON] ()
+          :<|> "learner"  :> "purge"   :> ReqBody '[OctetStream] Key            :> Post '[OctetStream] EmptyResponse

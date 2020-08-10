@@ -3,7 +3,8 @@
 
 module Server.Paxos.LearnerState where
 
-import Types
+import Entity.Id
+import Entity.Value
 
 import Codec.Serialise (Serialise)
 import Control.DeepSeq (NFData)
