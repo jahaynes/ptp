@@ -4,43 +4,45 @@
 
 module Server.Keylocks where
 
-import           Control.Concurrent.STM (atomically, retry)
-import           Data.Hashable          (Hashable)
+import           Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, retry, writeTVar)
+import           Control.DeepSeq        (NFData, deepseq)
+import           Data.Set               (Set)
+import qualified Data.Set as S
 import           GHC.Generics           (Generic)
-import           StmContainers.Set      (Set)
-import qualified StmContainers.Set as S
 
 newtype Locked a =
     Locked a
-        deriving (Eq, Generic, Hashable)
+        deriving (Eq, Generic)
 
 newtype Locks a =
-    Locks (Set a)
+    Locks (TVar (Set a))
     {- TODO can possibly replace this with
         Data.Map k (TVar Bool)
         removing last depency on stm-containers
     -}
 
 -- TODO catch deep
-withLockedKey :: (Eq k, Hashable k) => Locks k
-                                    -> k
-                                    -> (Locked k -> IO a)
-                                    -> IO a
-withLockedKey (Locks ks) k f = do
+withLockedKey :: (NFData a, Ord k) => Locks k
+                                   -> k
+                                   -> (Locked k -> IO a)
+                                   -> IO a
+withLockedKey (Locks tks) k f = do
     takeLock
     y <- f (Locked k)
-    releaseLock
+    y `deepseq` releaseLock
     pure y
 
     where
     takeLock :: IO ()
-    takeLock = atomically $
-        S.lookup k ks >>= \case
-            True  -> retry
-            False -> S.insert k ks
+    takeLock = atomically $ do
+        ks <- readTVar tks
+        case S.member k ks of
+                True  -> retry
+                False -> writeTVar tks $! S.insert k ks
 
     releaseLock :: IO ()
-    releaseLock = atomically $ S.delete k ks
+    releaseLock = atomically $
+        modifyTVar' tks $ \ks -> S.delete k ks
 
 newLocks :: IO (Locks k)
-newLocks = Locks <$> S.newIO
+newLocks = Locks <$> newTVarIO S.empty

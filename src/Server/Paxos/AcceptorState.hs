@@ -3,8 +3,8 @@
 
 module Server.Paxos.AcceptorState where
 
-import ProposalNumber
-import Types
+import Entity.Proposal
+import Entity.ProposalNumber
 
 import Control.DeepSeq (NFData)
 import Codec.Serialise

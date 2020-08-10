@@ -1,15 +1,18 @@
 import Client.WebNodeClient
-import ProposalNumber           (Uniq (..), randomUniq)
-import SequenceNum
+import Entity.Id
+import Entity.Key
+import Entity.Value
+import Entity.ValueResponse
+import Entity.ProposeRequest
+import Entity.ProposalNumber    (Uniq (..), randomUniq)
+import Entity.SequenceNum
+import Entity.Topic
+
 import Server.WebNode           (Node (..), create)
-import Topic
-import Types                    (Id (..), Key (..), ProposeRequest (..), Value (..))
 
 import Control.Concurrent       (threadDelay)
 import Control.Concurrent.Async (async, mapConcurrently, mapConcurrently_)
 import Control.Monad            (forM_, unless)
-import Data.Either              (fromRight)
-import Data.Maybe               (fromJust)
 import Network.HTTP.Client
 
 main :: IO ()
@@ -51,7 +54,7 @@ main = do
                 client $ ProposeRequest topic val) proposalClients
 
             -- Check
-            (r:esults) <- map (fromJust . fromRight undefined) <$> mapConcurrently (\c -> c topic) checkClients
+            (r:esults) <- map (fmap (\(ValueResponseM r) -> r)) <$> mapConcurrently (\c -> c topic) checkClients
             unless (all (==r) esults) $ error $ "CRASH: " ++ show (r:esults)
 
             print r
