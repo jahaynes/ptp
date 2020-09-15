@@ -4,26 +4,27 @@
 module Server.NodeApi where
 
 import Entity.AcceptRequest
-import Entity.EmptyResponse
-import Entity.Key
+import Entity.CreateTopicRequest
+import Entity.CreateTopicResponse
 import Entity.LearnRequest
 import Entity.PrepareRequest
 import Entity.PrepareResponse
 import Entity.ProposeRequest
+import Entity.ProposeResponse
+import Entity.SubmitRequest
+import Entity.SubmitResponse
 import Entity.ValueResponse
 
 import Servant.API
 
-type NodeApi = "proposer" :> "propose" :> ReqBody '[OctetStream] ProposeRequest :> Post '[OctetStream] ValueResponseE
+type NodeApi = "proposer" :> "propose"     :> ReqBody '[OctetStream] ProposeRequest     :> Post '[OctetStream] ProposeResponse
 
-          :<|> "acceptor" :> "prepare" :> ReqBody '[OctetStream] PrepareRequest :> Post '[OctetStream] PrepareResponse
+          :<|> "acceptor" :> "prepare"     :> ReqBody '[OctetStream] PrepareRequest     :> Post '[OctetStream] PrepareResponse
 
-          :<|> "acceptor" :> "accept"  :> ReqBody '[OctetStream] AcceptRequest  :> Post '[OctetStream] ValueResponseE
+          :<|> "acceptor" :> "accept"      :> ReqBody '[OctetStream] AcceptRequest      :> Post '[OctetStream] ValueResponseE
 
-          :<|> "acceptor" :> "purge"   :> ReqBody '[OctetStream] Key            :> Post '[OctetStream] EmptyResponse
+          :<|> "learner"  :> "learn"       :> ReqBody '[OctetStream] LearnRequest       :> Post '[OctetStream] ValueResponseM
 
-          :<|> "learner"  :> "learn"   :> ReqBody '[OctetStream] LearnRequest   :> Post '[OctetStream] ValueResponseM
+          :<|> "machine"  :> "createTopic" :> ReqBody '[OctetStream] CreateTopicRequest :> Post '[OctetStream] CreateTopicResponse
 
-          :<|> "learner"  :> "check"   :> ReqBody '[OctetStream] Key            :> Get  '[OctetStream] ValueResponseM
-
-          :<|> "learner"  :> "purge"   :> ReqBody '[OctetStream] Key            :> Post '[OctetStream] EmptyResponse
+          :<|> "machine"  :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse

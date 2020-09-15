@@ -10,7 +10,6 @@ import Control.DeepSeq (NFData)
 import Codec.Serialise
 import GHC.Generics    (Generic)
 
-data AcceptorState =
-    AcceptorState { acc_notLessThan :: !(Maybe ProposalNumber)
-                  , acc_proposal    :: !(Maybe Proposal) }
-        deriving (Generic, NFData, Serialise, Show)
+data AcceptorState = AcceptorState { acc_notLessThan :: !(Maybe ProposalNumber)
+                                   , acc_proposal    :: !(Maybe Proposal) }
+                        deriving (Generic, NFData, Serialise, Show)

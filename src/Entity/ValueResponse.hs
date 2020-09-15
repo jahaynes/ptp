@@ -13,7 +13,7 @@ import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
 newtype ValueResponseE =
     ValueResponseE (Either String Value)
-        deriving (Generic, Serialise)
+        deriving (Generic, Serialise, Show)
 
 instance MimeRender OctetStream ValueResponseE where
     mimeRender _ = serialise
@@ -23,7 +23,7 @@ instance MimeUnrender OctetStream ValueResponseE where
 
 newtype ValueResponseM =
     ValueResponseM (Maybe Value)
-        deriving (Generic, NFData, Serialise)
+        deriving (Generic, NFData, Serialise, Show)
 
 instance MimeRender OctetStream ValueResponseM where
     mimeRender _ = serialise

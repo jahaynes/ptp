@@ -1,59 +1,70 @@
 module Client.WebNodeClient where
 
 import Entity.AcceptRequest
-import Entity.EmptyResponse
-import Entity.Key
+import Entity.CreateTopicRequest
+import Entity.CreateTopicResponse
 import Entity.LearnRequest
 import Entity.PrepareRequest
 import Entity.PrepareResponse
 import Entity.ProposeRequest
+import Entity.ProposeResponse
+import Entity.SubmitRequest
+import Entity.SubmitResponse
 import Entity.ValueResponse
+import Node
+import Port
 import Server.NodeApi
 
+import Network.HTTP.Client      (Manager)
 import Servant
 import Servant.Client
-import Network.HTTP.Client (Manager)
 
-type ProposeClient       e = ProposeRequest -> IO (Either e ValueResponseE)
-type PrepareClient       e = PrepareRequest -> IO (Either e PrepareResponse)
-type AcceptClient        e =  AcceptRequest -> IO (Either e ValueResponseE)
-type PurgeAcceptorClient e =            Key -> IO (Either e EmptyResponse)
-type LearnClient         e =   LearnRequest -> IO (Either e ValueResponseM)
-type CheckClient         e =            Key -> IO (Either e ValueResponseM)
-type PurgeLearnerClient  e =            Key -> IO (Either e EmptyResponse)
+type ProposeClient     e =     ProposeRequest -> IO (Either e ProposeResponse)
+type PrepareClient     e =     PrepareRequest -> IO (Either e PrepareResponse)
+type AcceptClient      e =      AcceptRequest -> IO (Either e ValueResponseE)
+type LearnClient       e =       LearnRequest -> IO (Either e ValueResponseM)
+type CreateTopicClient e = CreateTopicRequest -> IO (Either e CreateTopicResponse)
+type SubmitClient      e =      SubmitRequest -> IO (Either e SubmitResponse)
 
-data NodeClient e = NodeClient
-                  { getProposeClient       :: !(ProposeClient e)
-                  , getPrepareClient       :: !(PrepareClient e)
-                  , getAcceptClient        :: !(AcceptClient e)
-                  , getPurgeAcceptorClient :: !(PurgeAcceptorClient e)
-                  , getLearnClient         :: !(LearnClient e)
-                  , getCheckClient         :: !(CheckClient e)
-                  , getPurgeLearnerClient  :: !(PurgeLearnerClient e)
-                  }
-
-propose       :: ProposeRequest -> ClientM ValueResponseE
-prepare       :: PrepareRequest -> ClientM PrepareResponse
-accept        ::  AcceptRequest -> ClientM ValueResponseE
-purgeAcceptor ::            Key -> ClientM EmptyResponse
-learn         ::   LearnRequest -> ClientM ValueResponseM
-check         ::            Key -> ClientM ValueResponseM
-purgeLearner  ::            Key -> ClientM EmptyResponse
+propose     ::     ProposeRequest -> ClientM ProposeResponse
+prepare     ::     PrepareRequest -> ClientM PrepareResponse
+accept      ::      AcceptRequest -> ClientM ValueResponseE
+learn       ::       LearnRequest -> ClientM ValueResponseM
+createTopic :: CreateTopicRequest -> ClientM CreateTopicResponse
+submit      ::      SubmitRequest -> ClientM SubmitResponse
 propose
     :<|> prepare
     :<|> accept
-    :<|> purgeAcceptor
     :<|> learn
-    :<|> check
-    :<|> purgeLearner = client (Proxy :: Proxy NodeApi)
+    :<|> createTopic
+    :<|> submit = client (Proxy :: Proxy NodeApi)
 
-makeClients :: Manager -> String -> Int -> NodeClient ClientError
-makeClients http hostname port =
-    let env = mkClientEnv http (BaseUrl Http hostname port "")
-    in NodeClient (\prop -> runClientM (propose prop)      env)
-                  (\prep -> runClientM (prepare prep)      env)
-                  (\acc  -> runClientM (accept acc)        env)
-                  (\tpc  -> runClientM (purgeAcceptor tpc) env)
-                  (\lrn  -> runClientM (learn lrn)         env)
-                  (\tpc  -> runClientM (check tpc)         env)
-                  (\tpc  -> runClientM (purgeLearner tpc)  env)
+proposeBuilder :: Manager -> Node -> ProposeClient ClientError
+proposeBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\prop -> runClientM (propose prop) env)
+
+prepareBuilder :: Manager -> Node -> PrepareClient ClientError
+prepareBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\prep -> runClientM (prepare prep) env)
+
+acceptBuilder :: Manager -> Node -> AcceptClient ClientError
+acceptBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\acc -> runClientM (accept acc) env)
+
+learnBuilder :: Manager -> Node -> LearnClient ClientError
+learnBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\lrn -> runClientM (learn lrn) env)
+
+createTopicBuilder :: Manager -> Node -> CreateTopicClient ClientError
+createTopicBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\ct -> runClientM (createTopic ct) env)
+
+submitBuilder :: Manager -> Node -> SubmitClient ClientError
+submitBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\sbm -> runClientM (submit sbm) env)

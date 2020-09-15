@@ -11,7 +11,6 @@ import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import GHC.Generics    (Generic)
 
-data LearnerState =
-    LearnerState { lrn_acceptedProposals :: !(Map Id Value)
-                 , lrn_consensus         :: !(Maybe Value) }
-                     deriving (Generic, NFData, Serialise)
+data LearnerState = AcceptedProposals !(Map Id Value)
+                  | Consensus !Value
+                      deriving (Generic, NFData, Serialise)

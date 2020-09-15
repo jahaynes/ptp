@@ -5,9 +5,8 @@ module Server.Paxos.Acceptor ( Acceptor (..)
                              , create
                              ) where
 
-import Client.WebNodeClient       (NodeClient, getLearnClient)
+import Client.WebNodeClient       (LearnClient)
 import Entity.AcceptRequest
-import Entity.EmptyResponse
 import Entity.Id
 import Entity.Key
 import Entity.LearnRequest
@@ -16,74 +15,81 @@ import Entity.PrepareRequest
 import Entity.PrepareResponse
 import Entity.Promise
 import Entity.Proposal
+import Entity.SequenceNum
+import Entity.Topic
 import Entity.ValueResponse
+import Node
 import Server.Files
-import Server.Keylocks
+import Server.Locks
 import Server.Paxos.AcceptorState
 
-import Control.Concurrent.Async (async, wait)
-import Control.Monad.IO.Class   (MonadIO, liftIO)
-import Data.Either              (rights)
-import Data.Maybe               (catMaybes, fromJust)
+import           Control.Concurrent.Async (forConcurrently)
+import           Control.Monad.IO.Class   (MonadIO, liftIO)
+import           Data.Either              (rights)
+import           Data.Maybe               (catMaybes, fromJust)
+import qualified Data.Set as S
+import           Network.HTTP.Client
 
 data Acceptor m =
-    Acceptor { prepare     :: !(PrepareRequest -> m PrepareResponse)
-             , accept      :: !(AcceptRequest -> m ValueResponseE)
-             , dbgPurgeKey :: !(Key -> m EmptyResponse)
+    Acceptor { prepare :: !(PrepareRequest -> m PrepareResponse)
+             , accept  :: !(AcceptRequest -> m ValueResponseE)
              }
 
-create :: MonadIO m => Id -> [NodeClient e] -> IO (Acceptor m)
-create myId clients = do
+create :: (Show e, MonadIO m) => Id
+                              -> Locks Topic
+                              -> (Manager -> Node -> LearnClient e)
+                              -> IO (Acceptor m)
+create myId topicLocks learnBuilder = do
 
-    keyLocks <- newLocks
+    -- TODO maybe share these HTTP clients
+    http <- newManager $ defaultManagerSettings
+                { managerResponseTimeout = responseTimeoutMicro 3000000 }
 
-    let getAcceptorState :: Locked Key -> IO AcceptorState
-            = \key -> readState myId key "as" >>= \case
-                          Just f  -> pure f
-                          Nothing -> pure $ AcceptorState Nothing Nothing
-
-    let putAcceptorState :: Locked Key -> AcceptorState -> IO ()
-            = \key acceptorState -> writeState myId key "as" acceptorState
-
-    let purge key =
-            withLockedKey keyLocks key $ \lockedKey -> do
-                deleteState myId lockedKey "as"
-                pure EmptyResponse
-
-    pure $ Acceptor { prepare     = liftIO . prepareService keyLocks getAcceptorState putAcceptorState
-                    , accept      = liftIO . acceptService myId clients keyLocks getAcceptorState putAcceptorState
-                    , dbgPurgeKey = liftIO . purge
+    pure $ Acceptor { prepare = liftIO . prepareService topicLocks getAcceptorState putAcceptorState
+                    , accept  = liftIO . acceptService myId (learnBuilder http) topicLocks getAcceptorState putAcceptorState
                     }
 
-prepareService :: Locks Key
-               -> (Locked Key -> IO AcceptorState)
-               -> (Locked Key -> AcceptorState -> IO ())
+    where
+    getAcceptorState :: Locked Topic -> SequenceNum -> IO AcceptorState
+    getAcceptorState lockedtopic seqNum =
+        readState myId lockedtopic seqNum "as" >>= \case
+            Just f  -> pure f
+            Nothing -> pure $ AcceptorState Nothing Nothing
+
+    putAcceptorState :: Locked Topic -> SequenceNum -> AcceptorState -> IO ()
+    putAcceptorState lockedtopic seqNum acceptorState =
+        writeState myId lockedtopic seqNum "as" acceptorState
+
+prepareService :: Locks Topic
+               -> (Locked Topic -> SequenceNum -> IO AcceptorState)
+               -> (Locked Topic -> SequenceNum -> AcceptorState -> IO ())
                -> PrepareRequest
                -> IO PrepareResponse
-prepareService keyLocks getAcceptorState putAcceptorState (PrepareRequest key n) = do
-    withLockedKey keyLocks key $ \lockedKey -> do
-        state <- getAcceptorState lockedKey
+prepareService topicLocks getAcceptorState putAcceptorState (PrepareRequest (Key topic seqNum) n) =
+    -- TODO try limited the scope of this lock
+    withLocked topicLocks topic $ \lockedTopic -> do
+        state <- getAcceptorState lockedTopic seqNum
         if Just n > acc_notLessThan state
             then do
-                putAcceptorState lockedKey $! state {acc_notLessThan = Just n}
+                putAcceptorState lockedTopic seqNum $! state {acc_notLessThan = Just n}
                 pure . PrepareResponse . Right $ Promise n (acc_proposal state)
             else pure . PrepareResponse . Left . Nack . fromJust . acc_notLessThan $ state
 
-acceptService :: Id
-              -> [NodeClient e]
-              -> Locks Key
-              -> (Locked Key -> IO AcceptorState)
-              -> (Locked Key -> AcceptorState -> IO ())
+acceptService :: Show e => Id
+              -> (Node -> LearnClient e)
+              -> Locks Topic
+              -> (Locked Topic -> SequenceNum -> IO AcceptorState)
+              -> (Locked Topic -> SequenceNum -> AcceptorState -> IO ())
               -> AcceptRequest
               -> IO ValueResponseE
-acceptService myId clients keyLocks getAcceptorState putAcceptorState (AcceptRequest key n v) = do
-
-    accepted <- withLockedKey keyLocks key $ \lockedKey -> do
-        state <- getAcceptorState lockedKey
+acceptService myId learnBuilder topicLocks getAcceptorState putAcceptorState (AcceptRequest nodes key@(Key topic seqNum) n v) = do
+    -- TODO try limiting the scope of this lock
+    accepted <- withLocked topicLocks topic $ \lockedTopic -> do
+        state <- getAcceptorState lockedTopic seqNum
         if Just n >= acc_notLessThan state
             then do
-                putAcceptorState lockedKey $ state { acc_notLessThan = Just n
-                                                   , acc_proposal    = Just (Proposal n v) }
+                putAcceptorState lockedTopic seqNum $ state { acc_notLessThan = Just n
+                                                            , acc_proposal    = Just (Proposal n v) }
                 pure True
             else pure False
 
@@ -92,8 +98,9 @@ acceptService myId clients keyLocks getAcceptorState putAcceptorState (AcceptReq
         then do
 
             -- Inform every (responsive) learner
-            aLearnerResponses <- mapM ((\c -> async $ c (LearnRequest key myId v)) . getLearnClient) clients
-            learnerResponses <- rights . map (fmap (\(ValueResponseM r) -> r)) <$> mapM wait aLearnerResponses
+            learnerResponses <- rights
+                              . map (fmap (\(ValueResponseM r) -> r))
+                            <$> forConcurrently (map learnBuilder $ S.toList nodes) (\c -> c (LearnRequest nodes key myId v))
 
             -- Consider every consensus claimed by a learner
             pure . ValueResponseE $
@@ -106,4 +113,4 @@ acceptService myId clients keyLocks getAcceptorState putAcceptorState (AcceptReq
 
                            | otherwise -> Left "Fatal: Inconsistent consensus"
 
-        else pure . ValueResponseE $ Left "Not accepted"
+        else pure . ValueResponseE $ Left "acceptService: Not accepted"

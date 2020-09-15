@@ -2,19 +2,22 @@
              DeriveGeneric,
              MultiParamTypeClasses #-}
 
-module Entity.EmptyResponse where
+module Entity.SubmitResponse where
+
+import Entity.SequenceNum
+import Entity.Value
 
 import Codec.Serialise (Serialise, serialise, deserialise)
 import Control.DeepSeq (NFData)
 import GHC.Generics    (Generic)
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-data EmptyResponse =
-    EmptyResponse
-        deriving (Eq, Ord, Generic, NFData, Serialise)
+newtype SubmitResponse =
+    SubmitResponse (Either String (SequenceNum, Value))
+        deriving (Generic, Serialise, NFData, Show)
 
-instance MimeRender OctetStream EmptyResponse where
+instance MimeRender OctetStream SubmitResponse where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream EmptyResponse where
+instance MimeUnrender OctetStream SubmitResponse where
     mimeUnrender _ = Right . deserialise

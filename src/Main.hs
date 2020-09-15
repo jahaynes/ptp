@@ -1,63 +1,60 @@
-import Client.WebNodeClient
-import Entity.Id
-import Entity.Key
-import Entity.Value
-import Entity.ValueResponse
-import Entity.ProposeRequest
-import Entity.ProposalNumber    (Uniq (..), randomUniq)
-import Entity.SequenceNum
-import Entity.Topic
+import           Client.WebNodeClient             (acceptBuilder, learnBuilder, prepareBuilder)
+import           Entity.Id                        (Id (..))
+import           Entity.Topic                     (Topic (..))
+import qualified Journal                   as J   (create)
+import           Node                             (Node (..))
+import           Port                             (Port (..))
+import           Runner                           (runTests)
+import qualified Server.Paxos.Acceptor     as A   (accept, create, prepare)
+import qualified Server.Paxos.Learner      as L   (create, learn)
+import qualified Server.Paxos.Proposer     as P   (create, propose)
+import qualified Server.Paxos.StateMachine as SM  (StateMachine (..), create)
+import           Server.Locks                     (newLocks)
+import           Server.NodeApi                   (NodeApi)
 
-import Server.WebNode           (Node (..), create)
+import Control.Concurrent.Async   (async)
+import Data.Proxy                 (Proxy (Proxy))
+import Network.Wai.Handler.Warp   (run)
+import Servant                    (Handler, serve)
+import Servant.API
 
-import Control.Concurrent       (threadDelay)
-import Control.Concurrent.Async (async, mapConcurrently, mapConcurrently_)
-import Control.Monad            (forM_, unless)
-import Network.HTTP.Client
+createIds :: Int -> [Node]
+createIds n = do
+    let range = take n [8080..]
+        ports = map Port range
+        ids   = map (Id . show) range
+    zipWith Node ids ports
+
+runNode :: Node -> IO (SM.StateMachine Handler)
+runNode node@(Node ident (Port port)) = do
+
+    proposer <- P.create prepareBuilder acceptBuilder
+
+    acceptorLocks <- newLocks
+    acceptor      <- A.create ident acceptorLocks learnBuilder
+
+    learnerLocks <- newLocks
+    learner <- L.create ident learnerLocks
+
+    journal      <- J.create ident
+    machineLocks <- newLocks
+    stateMachine <- SM.create node journal machineLocks proposer
+
+    _ <- async . run port $ serve (Proxy :: Proxy NodeApi) $ P.propose proposer
+                                                        :<|> A.prepare acceptor
+                                                        :<|> A.accept acceptor
+                                                        :<|> L.learn learner
+                                                        :<|> SM.createTopic stateMachine
+                                                        :<|> SM.submit stateMachine
+    pure stateMachine
 
 main :: IO ()
 main = do
 
-    let ports = [8080..8086]
+    let startingNodes = createIds 5
 
-    -- Create clients
-    http <- newManager $ defaultManagerSettings
-                             {managerResponseTimeout = responseTimeoutMicro 3000000 }
-    let clients = map (makeClients http "127.0.0.1") ports
+    stateMachines <- mapM runNode startingNodes
 
-    -- Create servers
-    nodes <- mapM (\p -> create (length clients) p (Id $ show p) clients) ports 
-    mapM_ (async . runNode) nodes
+    let topic = Topic "some-topic"
 
-    threadDelay 10000
-
-    mapConcurrently_ (runGroup clients) ["alpha", "beta", "gamma", "delta"]
-
-    where
-    runGroup clients group = do
-
-        let proposalClients =  map getProposeClient clients
-        let checkClients    =  map getCheckClient clients
-        let purgeClients    =  map getPurgeLearnerClient clients
-                            ++ map getPurgeAcceptorClient clients
-
-        let topics = map (\x -> Key (Topic x) (SequenceNum 0))
-                   . map (\n -> group ++ "_" ++ show n)
-                   $ [(1::Int)..]
-
-        forM_ topics $ \topic -> do
-
-            -- Propose
-            mapConcurrently_ (\client -> do
-                (Uniq r) <- randomUniq
-                let val = Value $ take 5 r
-                client $ ProposeRequest topic val) proposalClients
-
-            -- Check
-            (r:esults) <- map (fmap (\(ValueResponseM r) -> r)) <$> mapConcurrently (\c -> c topic) checkClients
-            unless (all (==r) esults) $ error $ "CRASH: " ++ show (r:esults)
-
-            print r
-
-            -- Cleanup
-            mapConcurrently_ (\client -> client topic) purgeClients
+    runTests startingNodes topic stateMachines
