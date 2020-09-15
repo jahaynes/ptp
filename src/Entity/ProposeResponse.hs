@@ -2,22 +2,22 @@
              DeriveGeneric,
              MultiParamTypeClasses #-}
 
-module Entity.PrepareResponse where
+module Entity.ProposeResponse where
 
-import Entity.Nack
-import Entity.Promise
+import Entity.Value
 
 import Codec.Serialise (Serialise, serialise, deserialise)
 import Control.DeepSeq (NFData)
 import GHC.Generics    (Generic)
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-newtype PrepareResponse =
-    PrepareResponse (Either Nack Promise)
-        deriving (Generic, Serialise, NFData)
+data ProposeResponse = NoHighestNackRoundNo
+                     | Accepted !Value
+                     | NotAccepted String
+                        deriving (Generic, Serialise, NFData, Show)
 
-instance MimeRender OctetStream PrepareResponse where
+instance MimeRender OctetStream ProposeResponse where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream PrepareResponse where
+instance MimeUnrender OctetStream ProposeResponse where
     mimeUnrender _ = Right . deserialise

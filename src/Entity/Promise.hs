@@ -12,4 +12,4 @@ import GHC.Generics    (Generic)
 
 data Promise = Promise { prom_notLessThan     :: !ProposalNumber
                        , prom_highestProposal :: !(Maybe Proposal) }
-                           deriving (Generic, NFData, Serialise)
+                           deriving (Generic, NFData, Serialise, Show)

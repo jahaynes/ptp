@@ -1,38 +1,73 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BangPatterns,
+             LambdaCase #-}
 
 module Server.Files where
 
-
 import Entity.Id
-import Entity.Key
 import Entity.SequenceNum
 import Entity.Topic
-import Server.Keylocks
+import Server.Locks
 
 import Codec.Serialise        (Serialise, readFileDeserialise, writeFileSerialise)
 import Control.Exception.Safe (catchIO)
-import System.Directory       (doesFileExist, removeFile)
+import System.Directory       (createDirectoryIfMissing, doesFileExist, removeFile)
 import Text.Printf            (printf)
 
--- todo exceptions
-writeState :: Serialise a => Id
-                          -> Locked Key
+-- write meta
+-- read meta
+writeTopic :: Serialise a => Id
+                          -> Locked Topic
                           -> String
                           -> a
                           -> IO ()
-writeState ident key filetype =
-    writeFileSerialise filePath
+writeTopic ident topic filetype x = do
+    createDirectoryIfMissing True (getTopicDir ident topic)
+    writeFileSerialise filePath x
     where
-    filePath = getFile ident key filetype
+    filePath = getTopicFile ident topic filetype
 
-readState :: Serialise a => Id
-                         -> Locked Key
+readTopic :: Serialise a => Id
+                         -> Locked Topic
                          -> String
                          -> IO (Maybe a)
-readState ident key filetype =
+readTopic ident topic filetype =
+    catchIO readTopicImpl
+            (\ex -> do writeFile ("fatal_" <> show ident) (show ex)
+                       error "FATAL: " $ show ex)
+
+    where
+    -- TODO don't treat every exception as fnf
+    readTopicImpl :: Serialise a => IO (Maybe a)
+    readTopicImpl =
+        doesFileExist filePath >>= \case
+            False -> pure Nothing
+            True  -> do !x <- readFileDeserialise filePath
+                        pure $ Just x
+        where
+        filePath = getTopicFile ident topic filetype
+
+-- todo exceptions
+writeState :: Serialise a => Id
+                          -> Locked Topic
+                          -> SequenceNum
+                          -> String
+                          -> a
+                          -> IO ()
+writeState ident topic seqNum filetype x = do
+    createDirectoryIfMissing True (getTopicDir ident topic)
+    writeFileSerialise filePath x
+    where
+    filePath = getTopicSeqNoFile ident topic seqNum filetype
+
+readState :: Serialise a => Id
+                         -> Locked Topic
+                         -> SequenceNum
+                         -> String
+                         -> IO (Maybe a)
+readState ident topic seqNum filetype =
     catchIO readStateImpl
             (\ex -> do writeFile ("fatal_" <> show ident) (show ex)
-                       error "FATAL")
+                       error "FATAL: " $ show ex)
 
     where
     -- TODO don't treat every exception as fnf
@@ -40,21 +75,31 @@ readState ident key filetype =
     readStateImpl =
         doesFileExist filePath >>= \case
             False -> pure Nothing
-            True  -> Just <$> readFileDeserialise filePath
+            True  -> do !x <- readFileDeserialise filePath
+                        pure $ Just x
         where
-        filePath = getFile ident key filetype
+        filePath = getTopicSeqNoFile ident topic seqNum filetype
 
 -- todo exceptions
 deleteState :: Id
-            -> Locked Key
+            -> Locked Topic
+            -> SequenceNum
             -> String
-            -> IO ()
-deleteState ident key filetype =
-    removeFile filePath
+            -> IO Bool
+deleteState ident topic seqNum filetype =
+    catchIO (removeFile filePath >> pure True)
+            (\_ -> pure False)
     where
-    filePath = getFile ident key filetype
+    filePath = getTopicSeqNoFile ident topic seqNum filetype
 
-getFile :: Id -> Locked Key -> String -> FilePath
-getFile (Id ident) (Locked (Key (Topic topic) (SequenceNum seqNum))) filetype =
-    printf "%s_%s_%d.%s" ident topic seqNum filetype
+getTopicSeqNoFile :: Id -> Locked Topic -> SequenceNum -> String -> FilePath
+getTopicSeqNoFile ident topic (SequenceNum seqNum) =
+    printf "%s/%d.%s" (getTopicDir ident topic) seqNum
 
+getTopicFile :: Id -> Locked Topic -> String -> FilePath
+getTopicFile ident topic =
+    printf "%s/%s" (getTopicDir ident topic)
+
+getTopicDir :: Id -> Locked Topic -> FilePath
+getTopicDir (Id ident) (Locked (Topic t)) =
+    printf "nodes/%s/topics/%s" ident t

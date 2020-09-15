@@ -5,77 +5,68 @@ module Server.Paxos.Learner ( Learner (..)
                             , create
                             ) where
 
-import Entity.EmptyResponse
-import Entity.Id
-import Entity.Key
-import Entity.LearnRequest
-import Entity.ValueResponse
-import Quorum                    (threshold, majority)
-import Server.Files
-import Server.Keylocks
-import Server.Paxos.LearnerState
+import           Entity.Id
+import           Entity.Key
+import           Entity.LearnRequest
+import           Entity.SequenceNum
+import           Entity.Topic
+import           Entity.ValueResponse
+import           Quorum (threshold, majority)
+import           Server.Files
+import           Server.Locks
+import           Server.Paxos.LearnerState
 
-import           Control.Monad.IO.Class  (MonadIO, liftIO)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Data.Functor           ((<&>))
 import qualified Data.Map.Strict as M
 
-data Learner m = Learner { learn       :: !(LearnRequest -> m ValueResponseM)
-                         , check       :: !(Key -> m ValueResponseM)
-                         , dbgPurgeKey :: !(Key -> m EmptyResponse)
-                         }
+newtype Learner m =
+    Learner { learn :: LearnRequest -> m ValueResponseM
+            }
 
-create :: MonadIO m => Id -> Int -> IO (Learner m)
-create myId numAcceptors = do
-
-    keyLocks <- newLocks
-
-    let getLearnerState :: Locked Key -> IO LearnerState
-            = \key -> readState myId key "ls" >>= \case
-                            Just f  -> pure f
-                            Nothing -> pure $ LearnerState M.empty Nothing
-
-    let putLearnerState :: Locked Key -> LearnerState -> IO ()
-            = \key learnerState -> writeState myId key "ls" learnerState
-
-    let purge key =
-            withLockedKey keyLocks key $ \lockedKey -> do
-                deleteState myId lockedKey "ls"
-                pure EmptyResponse
-
-    pure $ Learner { learn       = liftIO . learnService keyLocks getLearnerState putLearnerState numAcceptors
-                   , check       = liftIO . checkImpl keyLocks getLearnerState
-                   , dbgPurgeKey = liftIO . purge
+create :: MonadIO m => Id
+                    -> Locks Topic
+                    -> IO (Learner m)
+create myId topicLocks =
+    pure $ Learner { learn = liftIO . learnService myId topicLocks
                    }
 
-learnService :: Locks Key
-             -> (Locked Key -> IO LearnerState)
-             -> (Locked Key -> LearnerState -> IO ())
-             -> Int
+learnService :: Id
+             -> Locks Topic
              -> LearnRequest
              -> IO ValueResponseM
-learnService keyLocks
-             getLearnerState
-             putLearnerState
-             numAcceptors
-             (LearnRequest key acceptorId value) =
+learnService myId
+             topicLocks
+             (LearnRequest nodes (Key topic seqNum) acceptorId value) =
 
-    withLockedKey keyLocks key $ \lockedKey -> do 
+    withLocked topicLocks topic $ \lockedTopic ->
 
-        LearnerState as mc <- getLearnerState lockedKey
+        getLearnerState myId lockedTopic seqNum >>= \case
 
-        let as' = M.insert acceptorId value as
-        putLearnerState lockedKey $! LearnerState as' mc
+            Consensus c -> pure . ValueResponseM $ Just c
 
-        case mc of
-            Just c  -> pure . ValueResponseM $ Just c
-            Nothing -> do
-                let values = map snd . M.toList $ as'
-                case majority values (threshold numAcceptors) of
-                    Nothing  -> pure $ ValueResponseM Nothing
-                    Just maj -> do
-                        putLearnerState lockedKey $! LearnerState as' (Just maj)
-                        pure . ValueResponseM $ Just maj
+            AcceptedProposals aps -> do
 
-checkImpl :: Locks Key -> (Locked Key -> IO LearnerState) -> Key -> IO ValueResponseM
-checkImpl keyLocks getLearnerState key =
-    withLockedKey keyLocks key $ \lockedKey ->
-        ValueResponseM . lrn_consensus <$> getLearnerState lockedKey
+                let numAcceptors = length nodes
+                    aps'   = M.insert acceptorId value aps
+                    values = map snd . M.toList $ aps'
+                    mMaj   = majority values (threshold numAcceptors)
+
+                let learnerState =
+                        case mMaj of
+
+                            Nothing -> --No consensus yet
+                                AcceptedProposals aps'
+
+                            Just maj -> -- Consensus achieved
+                                Consensus maj
+
+                writeState myId lockedTopic seqNum "ls" learnerState
+
+                pure $ ValueResponseM mMaj
+
+getLearnerState :: Id -> Locked Topic -> SequenceNum -> IO LearnerState
+getLearnerState myId topic seqNum =
+    readState myId topic seqNum "ls" <&> \case
+        Just f  -> f
+        Nothing -> AcceptedProposals M.empty
