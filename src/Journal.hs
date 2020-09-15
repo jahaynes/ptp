@@ -1,6 +1,5 @@
 {-# LANGUAGE LambdaCase,
-             OverloadedStrings,
-             ScopedTypeVariables #-}
+             OverloadedStrings #-}
 
 module Journal ( Journal (..)
                , create

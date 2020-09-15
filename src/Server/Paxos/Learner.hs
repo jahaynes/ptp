@@ -1,5 +1,4 @@
-{-# LANGUAGE LambdaCase,
-             ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Server.Paxos.Learner ( Learner (..)
                             , create

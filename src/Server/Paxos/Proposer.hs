@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Server.Paxos.Proposer ( Proposer (..)
                              , create

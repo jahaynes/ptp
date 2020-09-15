@@ -38,7 +38,7 @@ runNode node@(Node ident (Port port)) = do
 
     journal      <- J.create ident
     machineLocks <- newLocks
-    stateMachine <- SM.create node journal machineLocks proposer
+    let stateMachine = SM.create node journal machineLocks proposer
 
     _ <- async . run port $ serve (Proxy :: Proxy NodeApi) $ P.propose proposer
                                                         :<|> A.prepare acceptor

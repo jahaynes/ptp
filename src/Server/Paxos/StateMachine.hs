@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveAnyClass,
              DeriveGeneric,
-             LambdaCase,
-             ScopedTypeVariables #-}
+             LambdaCase #-}
 
 module Server.Paxos.StateMachine ( StateMachine (..)
                                  , create
@@ -30,7 +29,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Set               (Set)
 import Data.UUID.V4           (nextRandom)
 import GHC.Generics           (Generic)
-import Servant                (Handler, runHandler)
+import Servant                (Handler, ServerError, runHandler)
 import Text.Printf            (printf)
 
 data StateMachine m =
@@ -48,19 +47,12 @@ create :: MonadIO m => Node
                     -> Journal
                     -> Locks Topic
                     -> Proposer Handler
-                    -> IO (StateMachine m)
-create (Node ident _) journal machineTopicLocks proposer = do
-
-    let readMachine lockedTopic =
-            readTopic ident lockedTopic "ms"
-
-    let doProposal =
-            runHandler . propose proposer
-
-    pure $ StateMachine { createTopic = liftIO . createTopicImpl (writeMachineImpl ident machineTopicLocks)
-                        , submit      = liftIO . submitImpl ident doProposal machineTopicLocks readMachine journal
-                        , dump        = dumpImpl machineTopicLocks journal
-                        }
+                    -> StateMachine m
+create (Node ident _) journal machineTopicLocks proposer =
+    StateMachine { createTopic = liftIO . createTopicImpl (writeMachineImpl ident machineTopicLocks)
+                 , submit      = liftIO . submitImpl ident proposer machineTopicLocks journal
+                 , dump        = dumpImpl machineTopicLocks journal
+                 }
 
 -- TODO catch deep
 createTopicImpl :: (Topic -> MachineState -> IO ())
@@ -75,13 +67,12 @@ createTopicImpl writeMachine (CreateTopicRequest nodes topic) = do
     pure CreateTopicResponse
 
 submitImpl :: Id
-           -> (ProposeRequest -> IO (Either l ProposeResponse))
+           -> Proposer Handler
            -> Locks Topic
-           -> (Locked Topic -> IO (Maybe MachineState))
            -> Journal
            -> SubmitRequest
            -> IO SubmitResponse
-submitImpl ident doProposal machineTopicLocks readMachine journal (SubmitRequest topic val) =
+submitImpl ident proposer machineTopicLocks journal (SubmitRequest topic val) =
 
     withLocked machineTopicLocks topic $ \lockedTopic ->
 
@@ -104,15 +95,15 @@ submitImpl ident doProposal machineTopicLocks readMachine journal (SubmitRequest
                             Accepted v@(Value u' val') -> do
 
                                 -- *Some* value was accepted
-                                writeTopic ident lockedTopic "ms" $! machine { lastSeqNum = seqNum }
-                                writeEntries journal lockedTopic [(seqNum, val')]
+                                write lockedTopic machine seqNum val'
 
+                                -- If it was *our* value
                                 if u' == u
 
-                                    -- If it was *our* value, we're done
+                                    -- ...then we're done
                                     then right seqNum v
 
-                                    -- Otherwise keep trying to submit
+                                    -- ...otherwise keep trying to submit our value
                                     else gallop
 
                             _ -> left "Not accepted"
@@ -120,6 +111,19 @@ submitImpl ident doProposal machineTopicLocks readMachine journal (SubmitRequest
             gallop = retry -- TODO
 
         in retry
+
+    where
+    readMachine :: Locked Topic -> IO (Maybe MachineState)
+    readMachine lockedTopic =
+        readTopic ident lockedTopic "ms"
+
+    write :: Locked Topic -> MachineState -> SequenceNum -> Val -> IO ()
+    write lockedTopic machine seqNum val' = do
+        writeTopic ident lockedTopic "ms" $! machine { lastSeqNum = seqNum }
+        writeEntries journal lockedTopic [(seqNum, val')]
+
+    doProposal :: ProposeRequest -> IO (Either ServerError ProposeResponse)
+    doProposal = runHandler . propose proposer
 
 dumpImpl :: Locks Topic -> Journal -> Topic -> ((SequenceNum, Val) -> IO ()) -> IO ()
 dumpImpl machineTopicLocks journal topic f =

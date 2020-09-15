@@ -1,5 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables,
-             LambdaCase #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Server.Paxos.Acceptor ( Acceptor (..)
                              , create
