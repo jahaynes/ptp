@@ -1,5 +1,4 @@
-{-# LANGUAGE BangPatterns,
-             LambdaCase,
+{-# LANGUAGE LambdaCase,
              OverloadedStrings,
              ScopedTypeVariables #-}
 
@@ -14,6 +13,7 @@ import Entity.Value
 import Server.Locks
 
 import           Codec.Serialise             (deserialise, serialise)
+import           Control.DeepSeq             ((<$!!>), deepseq)
 import           Control.Monad               (forM, forM_, when, unless)
 import           Data.Binary.Get
 import           Data.Binary.Put
@@ -67,14 +67,13 @@ readEntriesImpl ident topic seqNums = do
                     Just index ->
                         withBinaryFile jrnPath ReadMode $ \h -> do
                             val <- readEntry h index
-                            pure $ Just (seqNum, val))
+                            val `deepseq` pure $ Just (seqNum, val))
 
     where
     readEntry :: Handle -> Index -> IO Val
     readEntry h (Index pos sz) = do
         hSeek h AbsoluteSeek (fromIntegral pos)
-        !v <- deserialise <$> LBS.hGet h (fromIntegral sz)
-        pure v
+        deserialise <$!!> LBS.hGet h (fromIntegral sz)
 
     readIndex :: Handle -> SequenceNum -> IO (Maybe Index)
     readIndex h (SequenceNum n) = do
@@ -85,8 +84,8 @@ readEntriesImpl ident topic seqNums = do
             then pure Nothing
             else do
                 hSeek h AbsoluteSeek (12 * n')
-                !pos <- runGet getWord64le <$> LBS.hGet h 8
-                !sz  <- runGet getWord32le <$> LBS.hGet h 4
+                pos <- runGet getWord64le <$!!> LBS.hGet h 8
+                sz  <- runGet getWord32le <$!!> LBS.hGet h 4
                 case pos of
                     0 -> pure Nothing
                     _ -> pure . Just $ Index pos sz
@@ -115,7 +114,7 @@ writeEntriesImpl ident topic seqVals = do
 
         -- Append the value
         valuePos <- do
-            !preSize <- hFileSize jrnH
+            preSize <- hFileSize jrnH
             if preSize == 0
                 then do
                     LBS.hPut jrnH "\0"
@@ -128,7 +127,7 @@ writeEntriesImpl ident topic seqVals = do
         -- write index
 
         -- Resize if necessary
-        !idxSz <- hFileSize idxH
+        idxSz <- hFileSize idxH
         let n' = 12 * fromIntegral n
         when (n' >= idxSz) $ hSetFileSize idxH (2 * n' + 12)
 
@@ -159,7 +158,7 @@ dumpJournalImpl ident topic f = do
                     sz  <- fromIntegral . runGet getWord32le <$> LBS.hGet idxH 4
                     unless (pos * sz == 0) $ do
                         hSeek jrnH AbsoluteSeek pos
-                        v <- deserialise <$> LBS.hGet jrnH (fromIntegral sz)
+                        v <- deserialise <$!!> LBS.hGet jrnH (fromIntegral sz)
                         f (SequenceNum sn, v)
 
 getIndexFile :: Id -> Locked Topic -> FilePath

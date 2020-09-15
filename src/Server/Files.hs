@@ -1,5 +1,4 @@
-{-# LANGUAGE BangPatterns,
-             LambdaCase #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Server.Files ( readState
                     , readTopic
@@ -13,7 +12,9 @@ import Entity.Topic
 import Server.Locks
 
 import Codec.Serialise        (Serialise, readFileDeserialise, writeFileSerialise)
+import Control.DeepSeq        (NFData, deepseq)
 import Control.Exception.Safe (catchIO)
+import Data.Functor           ((<&>))
 import System.Directory       (createDirectoryIfMissing, doesFileExist)
 import Text.Printf            (printf)
 
@@ -28,10 +29,10 @@ writeTopic ident topic filetype x = do
     where
     filePath = getTopicFile ident topic filetype
 
-readTopic :: Serialise a => Id
-                         -> Locked Topic
-                         -> String
-                         -> IO (Maybe a)
+readTopic :: (NFData a, Serialise a) => Id
+                                     -> Locked Topic
+                                     -> String
+                                     -> IO (Maybe a)
 readTopic ident topic filetype =
     catchIO readTopicImpl
             (\ex -> do writeFile ("fatal_" <> show ident) (show ex)
@@ -39,33 +40,33 @@ readTopic ident topic filetype =
 
     where
     -- TODO don't treat every exception as fnf
-    readTopicImpl :: Serialise a => IO (Maybe a)
+    readTopicImpl :: (NFData a, Serialise a) => IO (Maybe a)
     readTopicImpl =
         doesFileExist filePath >>= \case
             False -> pure Nothing
-            True  -> do !x <- readFileDeserialise filePath
-                        pure $ Just x
+            True  -> readFileDeserialise filePath <&> \x ->
+                        x `deepseq` Just x
         where
         filePath = getTopicFile ident topic filetype
 
 -- todo exceptions
-writeState :: Serialise a => Id
-                          -> Locked Topic
-                          -> SequenceNum
-                          -> String
-                          -> a
-                          -> IO ()
+writeState :: (NFData a, Serialise a) => Id
+                                      -> Locked Topic
+                                      -> SequenceNum
+                                      -> String
+                                      -> a
+                                      -> IO ()
 writeState ident topic seqNum filetype x = do
     createDirectoryIfMissing True (getTopicDir ident topic)
     writeFileSerialise filePath x
     where
     filePath = getTopicSeqNoFile ident topic seqNum filetype
 
-readState :: Serialise a => Id
-                         -> Locked Topic
-                         -> SequenceNum
-                         -> String
-                         -> IO (Maybe a)
+readState :: (NFData a, Serialise a) => Id
+                                     -> Locked Topic
+                                     -> SequenceNum
+                                     -> String
+                                     -> IO (Maybe a)
 readState ident topic seqNum filetype =
     catchIO readStateImpl
             (\ex -> do writeFile ("fatal_" <> show ident) (show ex)
@@ -73,12 +74,12 @@ readState ident topic seqNum filetype =
 
     where
     -- TODO don't treat every exception as fnf
-    readStateImpl :: Serialise a => IO (Maybe a)
+    readStateImpl :: (NFData a, Serialise a) => IO (Maybe a)
     readStateImpl =
         doesFileExist filePath >>= \case
             False -> pure Nothing
-            True  -> do !x <- readFileDeserialise filePath
-                        pure $ Just x
+            True  -> readFileDeserialise filePath <&> \x ->
+                        x `deepseq` Just x
         where
         filePath = getTopicSeqNoFile ident topic seqNum filetype
 
