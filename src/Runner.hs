@@ -53,7 +53,7 @@ runTests startingNodes topic stateMachines = do
         f :: (Eq v, Show s, Show v) => s -> v -> Maybe (Int, v) -> Maybe (Int, v)
         f _ v  Nothing                   = Just (1, v)
         f s v (Just (n, v')) | v /= v'   = error $ printf "MISMATCH in %s: %s %s" (show s) (show v) (show v')
-                            | otherwise = Just (n + 1, v')
+                             | otherwise = Just (n + 1, v')
 
     runBulkInsert :: Manager -> Int -> IO ()
     runBulkInsert http n = do

@@ -1,7 +1,11 @@
 {-# LANGUAGE BangPatterns,
              LambdaCase #-}
 
-module Server.Files where
+module Server.Files ( readState
+                    , readTopic
+                    , writeState
+                    , writeTopic
+                    ) where
 
 import Entity.Id
 import Entity.SequenceNum
@@ -10,11 +14,9 @@ import Server.Locks
 
 import Codec.Serialise        (Serialise, readFileDeserialise, writeFileSerialise)
 import Control.Exception.Safe (catchIO)
-import System.Directory       (createDirectoryIfMissing, doesFileExist, removeFile)
+import System.Directory       (createDirectoryIfMissing, doesFileExist)
 import Text.Printf            (printf)
 
--- write meta
--- read meta
 writeTopic :: Serialise a => Id
                           -> Locked Topic
                           -> String
@@ -79,18 +81,6 @@ readState ident topic seqNum filetype =
                         pure $ Just x
         where
         filePath = getTopicSeqNoFile ident topic seqNum filetype
-
--- todo exceptions
-deleteState :: Id
-            -> Locked Topic
-            -> SequenceNum
-            -> String
-            -> IO Bool
-deleteState ident topic seqNum filetype =
-    catchIO (removeFile filePath >> pure True)
-            (\_ -> pure False)
-    where
-    filePath = getTopicSeqNoFile ident topic seqNum filetype
 
 getTopicSeqNoFile :: Id -> Locked Topic -> SequenceNum -> String -> FilePath
 getTopicSeqNoFile ident topic (SequenceNum seqNum) =
