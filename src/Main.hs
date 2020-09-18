@@ -13,6 +13,7 @@ import           Server.Locks                     (newLocks)
 import           Server.NodeApi                   (NodeApi)
 
 import Control.Concurrent.Async   (async)
+import Control.Concurrent.STM
 import Data.Proxy                 (Proxy (Proxy))
 import Network.Wai.Handler.Warp   (run)
 import Servant                    (Handler, serve)
@@ -34,17 +35,17 @@ runNode node@(Node ident (Port port)) = do
     acceptor      <- A.create ident acceptorLocks learnBuilder
 
     learnerLocks <- newLocks
-    learner <- L.create ident learnerLocks
+    learner      <- L.create ident learnerLocks
 
     journal      <- J.create ident
-    machineLocks <- newLocks
-    let stateMachine = SM.create node journal machineLocks proposer
+    stateMachine <- SM.create node journal proposer
 
     _ <- async . run port $ serve (Proxy :: Proxy NodeApi) $ P.propose proposer
                                                         :<|> A.prepare acceptor
                                                         :<|> A.accept acceptor
                                                         :<|> L.learn learner
                                                         :<|> SM.createTopic stateMachine
+                                                        :<|> SM.peer stateMachine
                                                         :<|> SM.submit stateMachine
     pure stateMachine
 
@@ -57,4 +58,7 @@ main = do
 
     let topic = Topic "some-topic"
 
-    runTests startingNodes topic stateMachines
+    activeNodes   <- newTVarIO . take 3 $ startingNodes
+    inactiveNodes <- newTVarIO . drop 3 $ startingNodes
+
+    runTests activeNodes inactiveNodes topic stateMachines

@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Runner (runTests) where
 
 import Client.WebNodeClient
@@ -9,31 +11,36 @@ import Node
 import Server.Paxos.StateMachine
 
 import           Control.Concurrent.Async (replicateConcurrently_)
+import           Control.Concurrent.STM
 import           Control.Monad            (forM_, replicateM_)
 import           Data.IORef
-import           Data.Map.Strict
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import           Network.HTTP.Client
 import           System.Random            (randomRIO)
 import           Text.Printf              (printf)
 
-runTests :: [Node] -> Topic -> [StateMachine m] -> IO ()
-runTests startingNodes topic stateMachines = do
+runTests :: TVar [Node] -> TVar [Node] -> Topic -> [StateMachine m] -> IO ()
+runTests tvActiveNodes tvInactiveNodes topic stateMachines = do
 
     http <- newManager $ defaultManagerSettings
-                { managerResponseTimeout = responseTimeoutMicro 3000000 }
+                { managerResponseTimeout = responseTimeoutMicro 10000000 }
+
+    allNodes <- (++) <$> readTVarIO tvActiveNodes
+                     <*> readTVarIO tvInactiveNodes
 
     printf "\nCreating topic: %s...\n" (show topic)
-    mapM_ (\node -> createTopicBuilder http node (CreateTopicRequest (S.fromList startingNodes) topic)) startingNodes
+    mapM_ (\node -> createTopicBuilder http node (CreateTopicRequest (S.fromList allNodes) topic)) allNodes
 
     -- _runSimpleTest http
     _runParallelTest http
 
+    putStrLn "Checking results"
     checkResults
 
     where
     _runSimpleTest http =
-        runBulkInsert http 40
+        runBulkInsert http 100
 
     _runParallelTest http =
         replicateConcurrently_ 4 $ _runSimpleTest http
@@ -41,12 +48,12 @@ runTests startingNodes topic stateMachines = do
     checkResults :: IO ()
     checkResults = do
 
-        ioMap <- newIORef empty
+        ioMap <- newIORef M.empty
         forM_ stateMachines $ \sm ->
             dump sm topic $ \(s,v) ->
-                modifyIORef' ioMap $ \m -> alter (f s v) s m
+                modifyIORef' ioMap $ \m -> M.alter (f s v) s m
 
-        results <- toList <$> readIORef ioMap
+        results <- M.toList <$> readIORef ioMap
         mapM_ print results
 
         where
@@ -57,17 +64,61 @@ runTests startingNodes topic stateMachines = do
 
     runBulkInsert :: Manager -> Int -> IO ()
     runBulkInsert http n = do
+
         printf "Sending messages...\n"
+
         replicateM_ n $ do
-            r <- randomRIO (0::Int, 1000)
+
+            -- TODO this is not a proper leader election?
+            -- Because activeNodes/tvActiveNodes is a local variable, not shared state
+            addOrRemoveNode
+
+            activeNodes <- readTVarIO tvActiveNodes
+            r <- randomRIO (0::Int, 100000)
             let val = SimpleValue (printf "hello_%d" r)
-            chosen <- choice startingNodes
-            printf "Submitting to %s value %s\n" (show chosen) (show val)
-            Right _ <- submitBuilder http chosen (SubmitRequest topic val)
-            pure ()
+
+            --let chosen = minimum activeNodes
+            chosen <- choice activeNodes
+
+            x <- submitBuilder http chosen (SubmitRequest topic val)
+
+            -- TODO: On success notify others ?
+
+            print x
 
         where
         choice :: [a] -> IO a
         choice xs = do
             i <- randomRIO (0, length xs - 1)
             pure $ xs !! i
+
+    addOrRemoveNode :: IO ()
+    addOrRemoveNode = do
+
+        r <- randomRIO (1::Int, 10)
+
+        atomically $ do
+
+            activeNodes <- readTVar tvActiveNodes
+
+            inactiveNodes <- readTVar tvInactiveNodes
+
+            case r of
+
+                -- Drop one
+                1 | length activeNodes > 3 -> transfer tvActiveNodes tvInactiveNodes
+
+                -- Add one
+                2 | not (null inactiveNodes) -> transfer tvInactiveNodes tvActiveNodes
+
+                _ -> pure ()
+
+        where
+        transfer :: TVar [a] -> TVar [a] -> STM ()
+        transfer src dst =
+            readTVar src >>= \case
+                []       -> error "Nope"
+                (s:srcs) -> do
+                    writeTVar src srcs
+                    modifyTVar' dst (s:)
+                    

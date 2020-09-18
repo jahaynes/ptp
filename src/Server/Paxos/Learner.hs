@@ -10,8 +10,8 @@ import           Entity.LearnRequest
 import           Entity.SequenceNum
 import           Entity.Topic
 import           Entity.ValueResponse
-import           Quorum (threshold, majority)
-import           Server.Files
+import           Quorum                    (threshold, majority)
+import           Server.Files              (readSubState, writeSubState)
 import           Server.Locks
 import           Server.Paxos.LearnerState
 
@@ -24,23 +24,23 @@ newtype Learner m =
             }
 
 create :: MonadIO m => Id
-                    -> Locks Topic
+                    -> Locks (Topic, SequenceNum)
                     -> IO (Learner m)
 create myId topicLocks =
     pure $ Learner { learn = liftIO . learnService myId topicLocks
                    }
 
 learnService :: Id
-             -> Locks Topic
+             -> Locks (Topic, SequenceNum)
              -> LearnRequest
              -> IO ValueResponseM
 learnService myId
              topicLocks
              (LearnRequest nodes (Key topic seqNum) acceptorId value) =
 
-    withLocked topicLocks topic $ \lockedTopic ->
+    withLocked topicLocks (topic, seqNum) $ \lockedTopic ->
 
-        getLearnerState myId lockedTopic seqNum >>= \case
+        getLearnerState myId lockedTopic >>= \case
 
             Consensus c -> pure . ValueResponseM $ Just c
 
@@ -60,12 +60,12 @@ learnService myId
                             Just maj -> -- Consensus achieved
                                 Consensus maj
 
-                writeState myId lockedTopic seqNum "ls" learnerState
+                writeSubState myId lockedTopic seqNum "ls" learnerState
 
                 pure $ ValueResponseM mMaj
 
-getLearnerState :: Id -> Locked Topic -> SequenceNum -> IO LearnerState
-getLearnerState myId topic seqNum =
-    readState myId topic seqNum "ls" <&> \case
+getLearnerState :: Id -> Locked (Topic, SequenceNum) -> IO LearnerState
+getLearnerState myId locked@(Locked (_, seqNum)) =
+    readSubState myId locked seqNum "ls" <&> \case
         Just f  -> f
         Nothing -> AcceptedProposals M.empty

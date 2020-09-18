@@ -1,9 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Server.Files ( readState
-                    , readTopic
-                    , writeState
-                    , writeTopic
+module Server.Files ( Machine (..)
+                    , readSubState
+                    , readTopicDetail
+                    , writeSubState
+                    , writeTopicDetail
                     ) where
 
 import Entity.Id
@@ -18,22 +19,26 @@ import Data.Functor           ((<&>))
 import System.Directory       (createDirectoryIfMissing, doesFileExist)
 import Text.Printf            (printf)
 
-writeTopic :: Serialise a => Id
-                          -> Locked Topic
-                          -> String
-                          -> a
-                          -> IO ()
-writeTopic ident topic filetype x = do
+-- Declare elsewhere
+data Machine = Machine deriving (Eq, Ord)
+
+
+writeTopicDetail :: Serialise a => Id
+                                -> Locked (Topic, b)
+                                -> String
+                                -> a
+                                -> IO ()
+writeTopicDetail ident (Locked (topic, _)) filetype x = do
     createDirectoryIfMissing True (getTopicDir ident topic)
     writeFileSerialise filePath x
     where
     filePath = getTopicFile ident topic filetype
 
-readTopic :: (NFData a, Serialise a) => Id
-                                     -> Locked Topic
-                                     -> String
-                                     -> IO (Maybe a)
-readTopic ident topic filetype =
+readTopicDetail :: (NFData a, Serialise a) => Id
+                                           -> Locked (Topic, b)
+                                           -> String
+                                           -> IO (Maybe a)
+readTopicDetail ident (Locked (topic, _)) filetype =
     catchIO readTopicImpl
             (\ex -> do writeFile ("fatal_" <> show ident) (show ex)
                        error "FATAL: " $ show ex)
@@ -50,28 +55,27 @@ readTopic ident topic filetype =
         filePath = getTopicFile ident topic filetype
 
 -- todo exceptions
-writeState :: (NFData a, Serialise a) => Id
-                                      -> Locked Topic
-                                      -> SequenceNum
-                                      -> String
-                                      -> a
-                                      -> IO ()
-writeState ident topic seqNum filetype x = do
+writeSubState :: (NFData a, Serialise a) => Id
+                                         -> Locked (Topic, b)
+                                         -> SequenceNum
+                                         -> String
+                                         -> a
+                                         -> IO ()
+writeSubState ident (Locked (topic, _)) seqNum filetype x = do
     createDirectoryIfMissing True (getTopicDir ident topic)
     writeFileSerialise filePath x
     where
     filePath = getTopicSeqNoFile ident topic seqNum filetype
 
-readState :: (NFData a, Serialise a) => Id
-                                     -> Locked Topic
-                                     -> SequenceNum
-                                     -> String
-                                     -> IO (Maybe a)
-readState ident topic seqNum filetype =
+readSubState :: (NFData a, Serialise a) => Id
+                                        -> Locked (Topic, b)
+                                        -> SequenceNum
+                                        -> String
+                                        -> IO (Maybe a)
+readSubState ident (Locked (topic, _)) seqNum filetype =
     catchIO readStateImpl
             (\ex -> do writeFile ("fatal_" <> show ident) (show ex)
                        error "FATAL: " $ show ex)
-
     where
     -- TODO don't treat every exception as fnf
     readStateImpl :: (NFData a, Serialise a) => IO (Maybe a)
@@ -83,14 +87,14 @@ readState ident topic seqNum filetype =
         where
         filePath = getTopicSeqNoFile ident topic seqNum filetype
 
-getTopicSeqNoFile :: Id -> Locked Topic -> SequenceNum -> String -> FilePath
+getTopicSeqNoFile :: Id -> Topic -> SequenceNum -> String -> FilePath
 getTopicSeqNoFile ident topic (SequenceNum seqNum) =
     printf "%s/%d.%s" (getTopicDir ident topic) seqNum
 
-getTopicFile :: Id -> Locked Topic -> String -> FilePath
+getTopicFile :: Id -> Topic -> String -> FilePath
 getTopicFile ident topic =
     printf "%s/%s" (getTopicDir ident topic)
 
-getTopicDir :: Id -> Locked Topic -> FilePath
-getTopicDir (Id ident) (Locked (Topic t)) =
+getTopicDir :: Id -> Topic -> FilePath
+getTopicDir (Id ident) (Topic t) =
     printf "nodes/%s/topics/%s" ident t

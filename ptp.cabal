@@ -17,6 +17,8 @@ executable ptp
                        Entity.Key,
                        Entity.LearnRequest,
                        Entity.Nack,
+                       Entity.PeerRequest,
+                       Entity.PeerResponse,
                        Entity.PrepareRequest,
                        Entity.PrepareResponse,
                        Entity.Promise,

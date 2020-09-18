@@ -7,6 +7,8 @@ import Entity.AcceptRequest
 import Entity.CreateTopicRequest
 import Entity.CreateTopicResponse
 import Entity.LearnRequest
+import Entity.PeerRequest
+import Entity.PeerResponse
 import Entity.PrepareRequest
 import Entity.PrepareResponse
 import Entity.ProposeRequest
@@ -26,5 +28,7 @@ type NodeApi = "proposer" :> "propose"     :> ReqBody '[OctetStream] ProposeRequ
           :<|> "learner"  :> "learn"       :> ReqBody '[OctetStream] LearnRequest       :> Post '[OctetStream] ValueResponseM
 
           :<|> "machine"  :> "createTopic" :> ReqBody '[OctetStream] CreateTopicRequest :> Post '[OctetStream] CreateTopicResponse
+
+          :<|> "machine"  :> "peerRequest" :> ReqBody '[OctetStream] PeerRequest        :> Post '[OctetStream] PeerResponse
 
           :<|> "machine"  :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse
