@@ -3,15 +3,17 @@
 module Runner (runTests) where
 
 import Client.WebNodeClient
+import Entity.CatchupRequest
 import Entity.CreateTopicRequest
+-- import Entity.SequenceNum
 import Entity.SubmitRequest
+import Entity.SubmitResponse
 import Entity.Topic
 import Entity.Value
 import Node
 import Server.Paxos.StateMachine
 
-import           Control.Concurrent.Async (replicateConcurrently_)
-import           Control.Concurrent.STM
+import           Control.Concurrent.Async (forConcurrently_, replicateConcurrently_)
 import           Control.Monad            (forM_, replicateM_)
 import           Data.IORef
 import qualified Data.Map.Strict as M
@@ -20,17 +22,14 @@ import           Network.HTTP.Client
 import           System.Random            (randomRIO)
 import           Text.Printf              (printf)
 
-runTests :: TVar [Node] -> TVar [Node] -> Topic -> [StateMachine m] -> IO ()
-runTests tvActiveNodes tvInactiveNodes topic stateMachines = do
+runTests :: [Node] -> Topic -> [StateMachine m] -> IO ()
+runTests nodes topic stateMachines = do
 
     http <- newManager $ defaultManagerSettings
                 { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
-    allNodes <- (++) <$> readTVarIO tvActiveNodes
-                     <*> readTVarIO tvInactiveNodes
-
     printf "\nCreating topic: %s...\n" (show topic)
-    mapM_ (\node -> createTopicBuilder http node (CreateTopicRequest (S.fromList allNodes) topic)) allNodes
+    mapM_ (\node -> createTopicBuilder http node (CreateTopicRequest (S.fromList nodes) topic)) nodes
 
     -- _runSimpleTest http
     _runParallelTest http
@@ -40,7 +39,7 @@ runTests tvActiveNodes tvInactiveNodes topic stateMachines = do
 
     where
     _runSimpleTest http =
-        runBulkInsert http 100
+        runBulkInsert http 800
 
     _runParallelTest http =
         replicateConcurrently_ 4 $ _runSimpleTest http
@@ -69,22 +68,29 @@ runTests tvActiveNodes tvInactiveNodes topic stateMachines = do
 
         replicateM_ n $ do
 
-            -- TODO this is not a proper leader election?
-            -- Because activeNodes/tvActiveNodes is a local variable, not shared state
-            addOrRemoveNode
+            rand <- randomRIO (0::Int, 100000)
+            let val = SimpleValue (printf "hello_%d" rand)
 
-            activeNodes <- readTVarIO tvActiveNodes
-            r <- randomRIO (0::Int, 100000)
-            let val = SimpleValue (printf "hello_%d" r)
+            chosen <- choice nodes
 
-            --let chosen = minimum activeNodes
-            chosen <- choice activeNodes
+            let loop node =
 
-            x <- submitBuilder http chosen (SubmitRequest topic val)
+                    submitBuilder http node (SubmitRequest topic val) >>= \case
 
-            -- TODO: On success notify others ?
+                        Left l -> error $ show l
 
-            print x
+                        Right (SubmitResponse (Left (SubmitElsewhere leader))) -> loop leader
+
+                        Right (SubmitResponse (Right (s, v))) -> do
+
+                            -- On success notify others
+                            forConcurrently_ (filter (/=chosen) nodes) $ \other -> do
+                                _ <- catchupBuilder http other (CatchupRequest topic [s])
+                                pure ()
+
+                            print (s,v)
+
+            loop chosen
 
         where
         choice :: [a] -> IO a
@@ -92,6 +98,7 @@ runTests tvActiveNodes tvInactiveNodes topic stateMachines = do
             i <- randomRIO (0, length xs - 1)
             pure $ xs !! i
 
+{-
     addOrRemoveNode :: IO ()
     addOrRemoveNode = do
 
@@ -121,4 +128,4 @@ runTests tvActiveNodes tvInactiveNodes topic stateMachines = do
                 (s:srcs) -> do
                     writeTVar src srcs
                     modifyTVar' dst (s:)
-                    
+-}

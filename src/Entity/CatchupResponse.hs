@@ -2,29 +2,22 @@
              DeriveGeneric,
              MultiParamTypeClasses #-}
 
-module Entity.SubmitResponse where
+module Entity.CatchupResponse where
 
 import Entity.SequenceNum
-import Entity.Topic
 import Entity.Value
-import Node
 
 import Codec.Serialise (Serialise, serialise, deserialise)
 import Control.DeepSeq (NFData)
 import GHC.Generics    (Generic)
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-data Reason = NotDefined !Topic
-            | NotAcceptedR
-            | SubmitElsewhere !Node
-    deriving (Generic, Serialise, NFData, Show)
-
-newtype SubmitResponse =
-    SubmitResponse (Either Reason (SequenceNum, Val))
+newtype CatchupResponse =
+    CatchupResponse [(SequenceNum, Val)]
         deriving (Generic, Serialise, NFData, Show)
 
-instance MimeRender OctetStream SubmitResponse where
+instance MimeRender OctetStream CatchupResponse where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream SubmitResponse where
+instance MimeUnrender OctetStream CatchupResponse where
     mimeUnrender _ = Right . deserialise

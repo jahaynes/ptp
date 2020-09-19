@@ -4,6 +4,8 @@
 module Server.NodeApi where
 
 import Entity.AcceptRequest
+import Entity.CatchupRequest
+import Entity.CatchupResponse
 import Entity.CreateTopicRequest
 import Entity.CreateTopicResponse
 import Entity.LearnRequest
@@ -26,6 +28,8 @@ type NodeApi = "proposer" :> "propose"     :> ReqBody '[OctetStream] ProposeRequ
           :<|> "acceptor" :> "accept"      :> ReqBody '[OctetStream] AcceptRequest      :> Post '[OctetStream] ValueResponseE
 
           :<|> "learner"  :> "learn"       :> ReqBody '[OctetStream] LearnRequest       :> Post '[OctetStream] ValueResponseM
+
+          :<|> "machine"  :> "catchup"     :> ReqBody '[OctetStream] CatchupRequest     :> Post '[OctetStream] CatchupResponse
 
           :<|> "machine"  :> "createTopic" :> ReqBody '[OctetStream] CreateTopicRequest :> Post '[OctetStream] CreateTopicResponse
 

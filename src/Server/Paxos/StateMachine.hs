@@ -7,7 +7,9 @@ module Server.Paxos.StateMachine ( StateMachine (..)
                                  , create
                                  ) where
 
-import Client.WebNodeClient       (PeerClient, peerBuilder)
+-- import Client.WebNodeClient       (PeerClient, peerBuilder)
+import Entity.CatchupRequest      (CatchupRequest (..))
+import Entity.CatchupResponse     (CatchupResponse (..))
 import Entity.CreateTopicRequest  (CreateTopicRequest (..))
 import Entity.CreateTopicResponse (CreateTopicResponse (..))
 import Entity.Key                 (Key (..))
@@ -19,202 +21,191 @@ import Entity.SequenceNum         (SequenceNum (..), next)
 import Entity.SubmitRequest       (SubmitRequest (..))
 import Entity.SubmitResponse      (Reason (..), SubmitResponse (..))
 import Entity.Topic               (Topic (..))
-import Entity.Value               (Command (..), Value (..), Val (..))
+import Entity.Value               (Value (..), Val (..))
 import Journal                    (Journal (..))
 import Node                       (Node (..))
-import Server.Files               (Machine (..), readTopicDetail, writeTopicDetail)
-import Server.Locks               (Locked (..), Locks, newLocks, withLocked)
+import Server.Locks               (Locks, newLocks, withLocked)
 import Server.Paxos.Proposer      (Proposer (..))
+import Server.Paxos.Learner       (Learner (..))
 
-import Codec.Serialise        (Serialise)
-import Control.DeepSeq        (NFData)
-import Control.Monad          (unless)
-import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Set               (Set)
-import Data.UUID.V4           (nextRandom)
-import GHC.Generics           (Generic)
-import Network.HTTP.Client
-import Servant                (Handler, ServerError, runHandler)
-import Servant.Client         (ClientError)
+import           Codec.Serialise        (Serialise)
+import           Control.Concurrent.STM
+import           Control.DeepSeq        (NFData)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Data.Set               (Set)
+import           Data.Map               (Map)
+import qualified Data.Map  as M
+import           Data.UUID.V4           (nextRandom)
+import           GHC.Generics           (Generic)
+-- import           Network.HTTP.Client
+import           Servant                (Handler, ServerError, runHandler)
+-- import           Servant.Client         (ClientError)
+-- import           Text.Printf            (printf)
 
 data StateMachine m =
     StateMachine { createTopic :: !(CreateTopicRequest -> m CreateTopicResponse)
-                 , peer        :: !(PeerRequest -> m PeerResponse)
                  , submit      :: !(SubmitRequest -> m SubmitResponse)
+                 , catchup     :: !(CatchupRequest -> m CatchupResponse)
+                 , peer        :: !(PeerRequest -> m PeerResponse)
                  , dump        :: !(Topic -> ((SequenceNum, Val) -> IO ()) -> IO ())
                  }
 
 data MachineState =
-    MachineState { cluster    :: !(Set Node)
-                 , getLeader  :: !(Maybe Node)
-                 , lastSeqNum :: !SequenceNum
+    MachineState { getCluster  :: !(Set Node)
+                 , getLeaderAt :: !(Maybe (Node, SequenceNum))
+                 , getSeqNum   :: !SequenceNum
                  } deriving (Generic, Serialise, NFData)
 
 create :: MonadIO m => Node
                     -> Journal
                     -> Proposer Handler
+                    -> Learner Handler
                     -> IO (StateMachine m)
-create n@(Node ident _) journal proposer = do
+create node journal proposer learner = do
 
-    topicLocks        <- newLocks
-    machineTopicLocks <- newLocks
+    journalLocks <- newLocks
 
-    let writeMachineImpl topic ms =
-            withLocked machineTopicLocks (topic, Machine) $ \lockedTopicMachine ->
-                writeTopicDetail ident lockedTopicMachine "ms" ms
+    tvMachineStates <- newTVarIO M.empty
 
-    http <- newManager $ defaultManagerSettings
-        { managerResponseTimeout = responseTimeoutMicro 10000000 }
-
-    pure $ StateMachine { createTopic = liftIO . createTopicImpl writeMachineImpl
-                        , peer        = liftIO . peerImpl topicLocks journal
-                        , submit      = liftIO . submitImpl n proposer (peerBuilder http) topicLocks machineTopicLocks journal
-                        , dump        = dumpImpl topicLocks journal
+    pure $ StateMachine { createTopic = liftIO . createTopicImpl tvMachineStates
+                        , submit      = liftIO . submitImpl node proposer journalLocks journal tvMachineStates
+                        , catchup     = liftIO . catchupImpl learner journalLocks journal
+                        , peer        = liftIO . _peerImpl journalLocks journal
+                        , dump        = dumpImpl journalLocks journal
                         }
 
 -- TODO catch deep
-createTopicImpl :: (Topic -> MachineState -> IO ())
+-- reject if already exist
+createTopicImpl :: TVar (Map Topic MachineState)
                 -> CreateTopicRequest
                 -> IO CreateTopicResponse
-createTopicImpl writeMachine (CreateTopicRequest nodes topic) = do
-    writeMachine topic $! MachineState { cluster    = nodes
-                                       , getLeader  = Nothing
-                                       , lastSeqNum = SequenceNum 1
-                                       }
+createTopicImpl tvMachineStates (CreateTopicRequest nodes topic) = do
+    atomically . modifyTVar' tvMachineStates
+               . M.insert topic
+               $ MachineState { getCluster  = nodes
+                              , getLeaderAt = Nothing
+                              , getSeqNum   = SequenceNum 0
+                              }
     pure CreateTopicResponse
 
-data Retry = Retry (Maybe Node) SequenceNum Val
+data Retry = Retry SequenceNum Val
                 deriving (Generic, NFData)
-
-peerImpl :: Locks Topic
-         -> Journal
-         -> PeerRequest
-         -> IO PeerResponse
-peerImpl topicLocks journal (PeerRequest topic seqNums) =
-    withLocked topicLocks topic $ \lockedTopic ->
-        PeerResponse <$> readEntries journal lockedTopic seqNums
 
 submitImpl :: Node
            -> Proposer Handler
-           -> (Node -> PeerClient ClientError)
            -> Locks Topic
-           -> Locks (Topic, Machine)
            -> Journal
+           -> TVar (Map Topic MachineState)
            -> SubmitRequest
            -> IO SubmitResponse
-submitImpl node@(Node ident _) proposer peerer topicLocks machineLocks journal (SubmitRequest topic val) = loop
+submitImpl node proposer journalLocks journal tvMachineStates (SubmitRequest topic val) = loop
+
     where
-    loop = withLocked machineLocks (topic, Machine) submitImpl2 >>= \case
+    loop = do
 
-               -- TODO even fallbackier - tell the CALLER to ask the leader instead
-               Left (Retry Nothing s v) -> do withLocked topicLocks topic (writeJournal s v)
-                                              loop
+        (cluster, mLeader, seqNum) <- atomically getDeets
 
-               Left (Retry (Just leader) s v) -> do
+        case mLeader of
 
-                   withLocked topicLocks topic (writeJournal s v)
+            -- Tell the caller to submit elsewhere
+            Just (leader, _) | leader /= node ->
+                pure . SubmitResponse $ Left (SubmitElsewhere leader)
 
-                   -- Not not the leader, keep polling the leader
-                   unless (leader == node) $
-                       let gallop (SequenceNum sn) = do
-                               let sns = map SequenceNum [(sn+1) .. (sn+10)]
-                               Right (PeerResponse pr) <- peerer leader (PeerRequest topic sns)
-                               unless (null pr) $ do
-                                   withLocked topicLocks topic (writeJournals pr)
-                                   gallop (SequenceNum $ sn + 10)
-                       in gallop s
+            _ -> do
 
-                   -- Still haven't written our own value yet
-                   loop
-
-               Right r@(SubmitResponse e) ->
-
-                   case e of
-
-                       Left (NotDefined (Topic t)) -> error $ "Not defined: " ++ t
-
-                       Left NotAcceptedR -> loop
-
-                       Right (s, v) -> do withLocked topicLocks topic (writeJournal s v)
-                                          pure r
-
-    writeJournal :: SequenceNum -> Val -> Locked Topic -> IO ()
-    writeJournal seqNum val' lockedTopic = writeEntries journal lockedTopic [(seqNum, val')]
-
-    --TODO dedupe
-    writeJournals :: [(SequenceNum, Val)] -> Locked Topic -> IO ()
-    writeJournals seqVals lockedTopic = writeEntries journal lockedTopic seqVals
-
-    submitImpl2 :: Locked (Topic, Machine)
-                -> IO (Either Retry SubmitResponse)
-    submitImpl2 lockedMachineTopic =
-
-        readMachine lockedMachineTopic >>= \case
-
-            Nothing -> left $ NotDefined topic
-
-            Just machine -> do
-
-                let seqNum = next (lastSeqNum machine)
                 u <- show <$> nextRandom
 
-                case getLeader machine of
+                let key      = Key topic seqNum
+                let value    = Value node u val
+                let proposal = ProposeRequest cluster key value
 
-                    -- Elect self
-                    Nothing -> do
-                        r <- doProposal (ProposeRequest (cluster machine) (Key topic seqNum) (Value u (ControlValue (ElectLeader node))))
-                        handleValue machine u seqNum r
+                doProposal proposal >>= \case
 
-                    -- Any leader is fine
-                    Just _ -> do
-                        r <- doProposal (ProposeRequest (cluster machine) (Key topic seqNum) (Value u val))
-                        handleValue machine u seqNum r
+                    Left l -> do error $ "FOo" ++ show l -- printf "Some Error %s\n" (show l)
+
+                    Right (NotAccepted _) -> do -- printf "Not Accepted: %s %s %s\n" (show x) (show seqNum) (show value)
+                                                loop
+
+                    Right NoHighestNackRoundNo -> do -- printf "No Highest Nack: %s %s\n" (show seqNum) (show value)
+                                                     loop
+
+                    Right (Accepted (Value sender u' val')) -> do
+
+                        handleMessage sender seqNum val'
+
+                        if u' == u
+
+                            -- Our message. Done.
+                            then pure . SubmitResponse $ Right (seqNum, val')
+
+                            -- Not our message, try again
+                            else loop
 
         where
-        handleValue _ _ _ (Left (_ :: ServerError)) = error "ServerError" 
-        handleValue machine u seqNum (Right (Accepted (Value u' val'))) = do
-
-            -- *Some* value was accepted
-            case val' of
-
-                SimpleValue _ ->
-                    writeMachine lockedMachineTopic machine { lastSeqNum = seqNum }
-
-                ControlValue (ElectLeader leader) ->
-                    writeMachine lockedMachineTopic machine { lastSeqNum = seqNum
-                                                            , getLeader  = Just leader
-                                                            } 
-
-            -- If it was *our* value
-            if u' == u
-
-                -- ...then we're done
-                then right seqNum val'
-
-                -- ...otherwise return what we learned and keep trying
-                else retry (getLeader machine) seqNum val'
-
-        handleValue _ _ _ _ = left NotAcceptedR -- TODO handle?
-
-        readMachine :: Locked (Topic, Machine) -> IO (Maybe MachineState)
-        readMachine lockedTopicMachine =
-            readTopicDetail ident lockedTopicMachine "ms"
-
-        writeMachine :: Locked (Topic, Machine) -> MachineState -> IO ()
-        writeMachine lockedTopicMachine machine = do
-            writeTopicDetail ident lockedTopicMachine "ms" machine
+        getDeets :: STM (Set Node, Maybe (Node, SequenceNum), SequenceNum)
+        getDeets = do
+            machineStates <- readTVar tvMachineStates
+            case M.lookup topic machineStates of
+                Nothing -> error "No machine state"
+                Just (MachineState cluster mLeader seqNum) -> do
+                    let seqNum' = next seqNum
+                    writeTVar tvMachineStates (M.insert topic (MachineState cluster mLeader seqNum') machineStates)
+                    pure (cluster, mLeader, seqNum')
 
         doProposal :: ProposeRequest -> IO (Either ServerError ProposeResponse)
         doProposal = runHandler . propose proposer
 
-        left :: Reason -> IO (Either l SubmitResponse)
-        left = pure . Right . SubmitResponse . Left
+        handleMessage :: Node -> SequenceNum -> Val -> IO ()
+        handleMessage sender seqNum' val' = do
 
-        right :: SequenceNum -> Val -> IO (Either l SubmitResponse)
-        right s v = pure . Right . SubmitResponse . Right $ (s, v)
+            atomically $ do
 
-        retry :: (Maybe Node) -> SequenceNum -> Val -> IO (Either Retry a)
-        retry mLeader s v = pure . Left $ Retry mLeader s v
+                machineStates <- readTVar tvMachineStates
+
+                let Just (MachineState cluster mLeader seqNum) = M.lookup topic machineStates
+
+                let leader' = case mLeader of
+                                  Nothing                         -> (sender, seqNum')
+                                  Just x@(_, lsn) | seqNum' > lsn -> (sender, seqNum')
+                                                  | otherwise     -> x
+
+                let seqNum'' = max seqNum seqNum'
+
+                writeTVar tvMachineStates $ M.insert topic (MachineState cluster (Just leader') seqNum'') machineStates
+
+            withLocked journalLocks topic $ \lockedTopic ->
+                writeEntries journal lockedTopic [(seqNum', val')]
+
+catchupImpl :: Learner m
+            -> Locks Topic
+            -> Journal
+            -> CatchupRequest
+            -> IO CatchupResponse
+catchupImpl learner journalLocks journal (CatchupRequest topic seqNums) = do
+
+    -- 1) First pass - check own paxos logs for the values
+    peeked <- peek learner topic seqNums
+
+    -- 2) TODO (unless null)...
+    --    write out discovered values
+    withLocked journalLocks topic $ \lockedTopic ->
+        writeEntries journal lockedTopic peeked
+
+    -- 3) TODO Second pass - for the missing values
+    --    Do a peer-request to the leader and/or others to find even more missing values
+
+    -- 4) TODO check if all requesteds were responded
+    pure $ CatchupResponse peeked
+
+    -- TODO 2 and 3 can be in parallel
+
+_peerImpl :: Locks Topic
+          -> Journal
+          -> PeerRequest
+          -> IO PeerResponse
+_peerImpl journalLocks journal (PeerRequest topic seqNums) =
+    withLocked journalLocks topic $ \lockedTopic ->
+        PeerResponse <$> readEntries journal lockedTopic seqNums
 
 dumpImpl :: Locks Topic -> Journal -> Topic -> ((SequenceNum, Val) -> IO ()) -> IO ()
 dumpImpl machineTopicLocks journal topic f =

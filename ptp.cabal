@@ -11,6 +11,8 @@ executable ptp
   hs-source-dirs:      src
   other-modules:       Client.WebNodeClient,
                        Entity.AcceptRequest,
+                       Entity.CatchupRequest,
+                       Entity.CatchupResponse,
                        Entity.CreateTopicRequest,
                        Entity.CreateTopicResponse,
                        Entity.Id,
