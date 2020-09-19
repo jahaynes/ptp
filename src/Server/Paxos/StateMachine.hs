@@ -7,7 +7,7 @@ module Server.Paxos.StateMachine ( StateMachine (..)
                                  , create
                                  ) where
 
--- import Client.WebNodeClient       (PeerClient, peerBuilder)
+import Client.WebNodeClient       (PeerClient, peerBuilder)
 import Entity.CatchupRequest      (CatchupRequest (..))
 import Entity.CatchupResponse     (CatchupResponse (..))
 import Entity.CreateTopicRequest  (CreateTopicRequest (..))
@@ -31,16 +31,19 @@ import Server.Paxos.Learner       (Learner (..))
 import           Codec.Serialise        (Serialise)
 import           Control.Concurrent.STM
 import           Control.DeepSeq        (NFData)
+import           Control.Monad          (forM, forM_, unless)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Set               (Set)
+-- import           Data.List              ((\\))
+import           Data.Set               (Set, (\\))
+import qualified Data.Set  as S
 import           Data.Map               (Map)
 import qualified Data.Map  as M
 import           Data.UUID.V4           (nextRandom)
 import           GHC.Generics           (Generic)
--- import           Network.HTTP.Client
+import           Network.HTTP.Client
 import           Servant                (Handler, ServerError, runHandler)
--- import           Servant.Client         (ClientError)
--- import           Text.Printf            (printf)
+import           Servant.Client         (ClientError)
+import           Text.Printf            (printf)
 
 data StateMachine m =
     StateMachine { createTopic :: !(CreateTopicRequest -> m CreateTopicResponse)
@@ -57,19 +60,22 @@ data MachineState =
                  } deriving (Generic, Serialise, NFData)
 
 create :: MonadIO m => Node
+                    -> Manager
                     -> Journal
                     -> Proposer Handler
                     -> Learner Handler
                     -> IO (StateMachine m)
-create node journal proposer learner = do
+create node http journal proposer learner = do
 
     journalLocks <- newLocks
 
     tvMachineStates <- newTVarIO M.empty
 
+    let peerer = peerBuilder http
+
     pure $ StateMachine { createTopic = liftIO . createTopicImpl tvMachineStates
                         , submit      = liftIO . submitImpl node proposer journalLocks journal tvMachineStates
-                        , catchup     = liftIO . catchupImpl learner journalLocks journal
+                        , catchup     = liftIO . catchupImpl tvMachineStates learner peerer journalLocks journal
                         , peer        = liftIO . _peerImpl journalLocks journal
                         , dump        = dumpImpl journalLocks journal
                         }
@@ -176,28 +182,39 @@ submitImpl node proposer journalLocks journal tvMachineStates (SubmitRequest top
             withLocked journalLocks topic $ \lockedTopic ->
                 writeEntries journal lockedTopic [(seqNum', val')]
 
-catchupImpl :: Learner m
+catchupImpl :: TVar (Map Topic MachineState)
+            -> Learner m
+            -> (Node -> PeerClient ClientError)
             -> Locks Topic
             -> Journal
             -> CatchupRequest
             -> IO CatchupResponse
-catchupImpl learner journalLocks journal (CatchupRequest topic seqNums) = do
+catchupImpl tvMachineStates learner peerer journalLocks journal (CatchupRequest topic seqNums) = do
 
     -- 1) First pass - check own paxos logs for the values
-    peeked <- peek learner topic seqNums
+    peeked <- S.fromList <$> peek learner topic seqNums
+
+    let nonLocal = S.fromList seqNums \\ S.map fst peeked
+
+    fromPeers <- if null nonLocal
+
+                     then pure mempty
+
+                     else do
+                         printf "STILL MISSING: %s\n" (show nonLocal)
+                         Just machineState <- M.lookup topic <$> readTVarIO tvMachineStates
+                         xs <- forM (S.toList . getCluster $ machineState) $ \other -> do
+                             Right (PeerResponse x) <- peerer other (PeerRequest topic seqNums)
+                             pure x
+                         pure $ mconcat xs
 
     -- 2) TODO (unless null)...
     --    write out discovered values
     withLocked journalLocks topic $ \lockedTopic ->
-        writeEntries journal lockedTopic peeked
-
-    -- 3) TODO Second pass - for the missing values
-    --    Do a peer-request to the leader and/or others to find even more missing values
+        writeEntries journal lockedTopic $ S.toList peeked
 
     -- 4) TODO check if all requesteds were responded
-    pure $ CatchupResponse peeked
-
-    -- TODO 2 and 3 can be in parallel
+    pure . CatchupResponse . S.toList $ peeked
 
 _peerImpl :: Locks Topic
           -> Journal

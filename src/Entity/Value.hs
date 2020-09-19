@@ -19,7 +19,7 @@ data Value =
 
 data Val = SimpleValue String
         -- | CommandValue !Command
-             deriving (Eq, Generic, Serialise, NFData)
+             deriving (Eq, Ord, Generic, Serialise, NFData)
 
 instance Show Value where
     show (Value n u v) = printf "%s-%s-%s" (show n) u (show v)

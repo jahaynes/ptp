@@ -39,7 +39,7 @@ runTests nodes topic stateMachines = do
 
     where
     _runSimpleTest http =
-        runBulkInsert http 800
+        runBulkInsert http 100
 
     _runParallelTest http =
         replicateConcurrently_ 4 $ _runSimpleTest http

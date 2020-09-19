@@ -19,7 +19,7 @@ import           Data.Binary.Put
 import qualified Data.ByteString.Lazy as LBS
 import           Data.Maybe                  (catMaybes)
 import           Data.Word                   (Word32, Word64)
-import           RIO.File                    (withBinaryFileDurable)
+--import           RIO.File                    (withBinaryFileDurable)
 import           System.Directory            (createDirectoryIfMissing, doesFileExist)
 import           System.IO                   (Handle, SeekMode (..), IOMode(..), hSeek, hFileSize, hSetFileSize, withBinaryFile)
 import           Text.Printf                 (printf)
@@ -96,8 +96,8 @@ writeEntriesImpl :: Id
                  -> IO ()
 writeEntriesImpl ident topic seqVals = do
     createDirectoryIfMissing True (getJournalDir ident topic)
-    withBinaryFileDurable (getJournalFile ident topic) AppendMode $ \jrnH ->
-        withBinaryFileDurable (getIndexFile ident topic) ReadWriteMode $ \idxH ->
+    withBinaryFile (getJournalFile ident topic) AppendMode $ \jrnH ->
+        withBinaryFile (getIndexFile ident topic) ReadWriteMode $ \idxH ->
             forM_ seqVals $ \(seqNum, val) -> writeEntryImpl jrnH idxH seqNum val
 
     where

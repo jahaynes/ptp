@@ -14,6 +14,7 @@ import           Server.NodeApi                   (NodeApi)
 
 import Control.Concurrent.Async   (async)
 import Data.Proxy                 (Proxy (Proxy))
+import Network.HTTP.Client hiding (Proxy)
 import Network.Wai.Handler.Warp   (run)
 import Servant                    (Handler, serve)
 import Servant.API
@@ -36,8 +37,10 @@ runNode node@(Node ident (Port port)) = do
     learnerLocks <- newLocks
     learner      <- L.create ident learnerLocks
 
+    
+    http         <- newManager $ defaultManagerSettings { managerResponseTimeout = responseTimeoutMicro 10000000 }
     journal      <- J.create ident
-    stateMachine <- SM.create node journal proposer learner
+    stateMachine <- SM.create node http journal proposer learner
 
     _ <- async . run port $ serve (Proxy :: Proxy NodeApi) $ P.propose proposer
                                                         :<|> A.prepare acceptor
