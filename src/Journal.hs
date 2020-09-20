@@ -41,9 +41,9 @@ data Index = -- Can't use Serial here - need fixed width for O(1) access
 
 create :: Id -> IO Journal
 create ident =
-    pure $ Journal { readEntries    = readEntriesImpl    ident
-                   , writeEntries   = writeEntriesImpl   ident
-                   , dumpJournal    = dumpJournalImpl ident
+    pure $ Journal { readEntries  = readEntriesImpl  ident
+                   , writeEntries = writeEntriesImpl ident
+                   , dumpJournal  = dumpJournalImpl  ident
                    }
 
 readEntriesImpl :: Id

@@ -31,64 +31,66 @@ import           Network.HTTP.Client
 
 data Acceptor m =
     Acceptor { prepare :: !(PrepareRequest -> m PrepareResponse)
-             , accept  :: !(AcceptRequest -> m ValueResponseE)
+             , accept  :: !(AcceptRequest  -> m ValueResponseE)
              }
 
 create :: (Show e, MonadIO m) => Id
-                              -> Locks Topic
+                              -> Locks (Topic, SequenceNum)
                               -> (Manager -> Node -> LearnClient e)
                               -> IO (Acceptor m)
 create myId topicLocks learnBuilder = do
 
     -- TODO maybe share these HTTP clients
     http <- newManager $ defaultManagerSettings
-                { managerResponseTimeout = responseTimeoutMicro 3000000 }
+                { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
-    pure $ Acceptor { prepare = liftIO . prepareService topicLocks getAcceptorState putAcceptorState
-                    , accept  = liftIO . acceptService myId (learnBuilder http) topicLocks getAcceptorState putAcceptorState
+    pure $ Acceptor { prepare = liftIO . prepareService topicLocks getAcceptorSubState putAcceptorSubState
+                    , accept  = liftIO . acceptService myId (learnBuilder http) topicLocks getAcceptorSubState putAcceptorSubState
                     }
 
     where
-    getAcceptorState :: Locked Topic -> SequenceNum -> IO AcceptorState
-    getAcceptorState lockedtopic seqNum =
-        readState myId lockedtopic seqNum "as" >>= \case
+    getAcceptorSubState :: Locked (Topic, SequenceNum) -> IO AcceptorState
+    getAcceptorSubState lock@(Locked (_, seqNum)) =
+        readSubState myId lock seqNum "as" >>= \case
             Just f  -> pure f
             Nothing -> pure $ AcceptorState Nothing Nothing
 
-    putAcceptorState :: Locked Topic -> SequenceNum -> AcceptorState -> IO ()
-    putAcceptorState lockedtopic seqNum acceptorState =
-        writeState myId lockedtopic seqNum "as" acceptorState
+    putAcceptorSubState :: Locked (Topic, SequenceNum) -> AcceptorState -> IO ()
+    putAcceptorSubState lock@(Locked (_, seqNum)) acceptorState =
+        writeSubState myId lock seqNum "as" acceptorState
 
-prepareService :: Locks Topic
-               -> (Locked Topic -> SequenceNum -> IO AcceptorState)
-               -> (Locked Topic -> SequenceNum -> AcceptorState -> IO ())
+prepareService :: Locks (Topic, SequenceNum)
+               -> (Locked (Topic, SequenceNum) -> IO AcceptorState)
+               -> (Locked (Topic, SequenceNum) -> AcceptorState -> IO ())
                -> PrepareRequest
                -> IO PrepareResponse
-prepareService topicLocks getAcceptorState putAcceptorState (PrepareRequest (Key topic seqNum) n) =
+prepareService topicLocks getAcceptorSubState putAcceptorSubState (PrepareRequest (Key topic seqNum) n) =
     -- TODO try limited the scope of this lock
-    withLocked topicLocks topic $ \lockedTopic -> do
-        state <- getAcceptorState lockedTopic seqNum
+    -- This scope appears to just be a single topic/seqnum.as
+    withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
+        state <- getAcceptorSubState lockedTopic
         if Just n > acc_notLessThan state
             then do
-                putAcceptorState lockedTopic seqNum $! state {acc_notLessThan = Just n}
+                putAcceptorSubState lockedTopic $! state {acc_notLessThan = Just n}
                 pure . PrepareResponse . Right $ Promise n (acc_proposal state)
             else pure . PrepareResponse . Left . Nack . fromJust . acc_notLessThan $ state
 
 acceptService :: Show e => Id
               -> (Node -> LearnClient e)
-              -> Locks Topic
-              -> (Locked Topic -> SequenceNum -> IO AcceptorState)
-              -> (Locked Topic -> SequenceNum -> AcceptorState -> IO ())
+              -> Locks (Topic, SequenceNum)
+              -> (Locked (Topic, SequenceNum) -> IO AcceptorState)
+              -> (Locked (Topic, SequenceNum) -> AcceptorState -> IO ())
               -> AcceptRequest
               -> IO ValueResponseE
-acceptService myId learnBuilder topicLocks getAcceptorState putAcceptorState (AcceptRequest nodes key@(Key topic seqNum) n v) = do
+acceptService myId learnBuilder topicLocks getAcceptorSubState putAcceptorSubState (AcceptRequest nodes key@(Key topic seqNum) n v) = do
     -- TODO try limiting the scope of this lock
-    accepted <- withLocked topicLocks topic $ \lockedTopic -> do
-        state <- getAcceptorState lockedTopic seqNum
+    -- This scope appears to just be a single topic/seqnum.as
+    accepted <- withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
+        state <- getAcceptorSubState lockedTopic
         if Just n >= acc_notLessThan state
             then do
-                putAcceptorState lockedTopic seqNum $ state { acc_notLessThan = Just n
-                                                            , acc_proposal    = Just (Proposal n v) }
+                putAcceptorSubState lockedTopic $ state { acc_notLessThan = Just n
+                                                     , acc_proposal    = Just (Proposal n v) }
                 pure True
             else pure False
 

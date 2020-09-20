@@ -42,7 +42,7 @@ create :: (MonadIO m, Show e) => (Manager -> Node -> PrepareClient e)
 create prepareBuilder acceptBuilder = do
 
     http <- newManager $ defaultManagerSettings
-                { managerResponseTimeout = responseTimeoutMicro 3000000 }
+                { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
     pure $ Proposer { propose = liftIO . proposeService (prepareBuilder http) (acceptBuilder http)
                     }
