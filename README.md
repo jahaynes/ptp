@@ -1,3 +1,3 @@
 # Part-time Parliament
 
-Single-decree Paxos
+Replicated state-machines using Paxos for consensus.
