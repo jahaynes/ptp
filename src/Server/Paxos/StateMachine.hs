@@ -19,7 +19,7 @@ import Entity.ProposeRequest      (ProposeRequest (..))
 import Entity.ProposeResponse     (ProposeResponse (..))
 import Entity.SequenceNum         (SequenceNum (..), next)
 import Entity.SubmitRequest       (SubmitRequest (..))
-import Entity.SubmitResponse      (Reason (..), SubmitResponse (..))
+import Entity.SubmitResponse      (Reason (..), SubmitResponse (..), fromServerError)
 import Entity.Topic               (Topic (..))
 import Entity.Value               (Value (..), Val (..))
 import Journal                    (Journal (..))
@@ -31,9 +31,8 @@ import Server.Paxos.Learner       (Learner (..))
 import           Codec.Serialise        (Serialise)
 import           Control.Concurrent.STM
 import           Control.DeepSeq        (NFData)
-import           Control.Monad          (forM, forM_, unless)
+import           Control.Monad          (forM, unless)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
--- import           Data.List              ((\\))
 import           Data.Set               (Set, (\\))
 import qualified Data.Set  as S
 import           Data.Map               (Map)
@@ -43,13 +42,12 @@ import           GHC.Generics           (Generic)
 import           Network.HTTP.Client
 import           Servant                (Handler, ServerError, runHandler)
 import           Servant.Client         (ClientError)
-import           Text.Printf            (printf)
 
 data StateMachine m =
     StateMachine { createTopic :: !(CreateTopicRequest -> m CreateTopicResponse)
-                 , submit      :: !(SubmitRequest -> m SubmitResponse)
-                 , catchup     :: !(CatchupRequest -> m CatchupResponse)
-                 , peer        :: !(PeerRequest -> m PeerResponse)
+                 , submit      :: !(SubmitRequest      -> m SubmitResponse)
+                 , catchup     :: !(CatchupRequest     -> m CatchupResponse)
+                 , peer        :: !(PeerRequest        -> m PeerResponse)
                  , dump        :: !(Topic -> ((SequenceNum, Val) -> IO ()) -> IO ())
                  }
 
@@ -66,16 +64,11 @@ create :: MonadIO m => Node
                     -> Learner Handler
                     -> IO (StateMachine m)
 create node http journal proposer learner = do
-
-    journalLocks <- newLocks
-
+    journalLocks    <- newLocks
     tvMachineStates <- newTVarIO M.empty
-
-    let peerer = peerBuilder http
-
     pure $ StateMachine { createTopic = liftIO . createTopicImpl tvMachineStates
                         , submit      = liftIO . submitImpl node proposer journalLocks journal tvMachineStates
-                        , catchup     = liftIO . catchupImpl tvMachineStates learner peerer journalLocks journal
+                        , catchup     = liftIO . catchupImpl node tvMachineStates learner (peerBuilder http) journalLocks journal
                         , peer        = liftIO . _peerImpl journalLocks journal
                         , dump        = dumpImpl journalLocks journal
                         }
@@ -107,56 +100,60 @@ submitImpl :: Node
 submitImpl node proposer journalLocks journal tvMachineStates (SubmitRequest topic val) = loop
 
     where
-    loop = do
+    loop =
 
-        (cluster, mLeader, seqNum) <- atomically getDeets
+        atomically getDeets >>= \case
 
-        case mLeader of
+            Left l -> left l
 
-            -- Tell the caller to submit elsewhere
-            Just (leader, _) | leader /= node ->
-                pure . SubmitResponse $ Left (SubmitElsewhere leader)
+            Right (cluster, mLeader, seqNum) -> do
 
-            _ -> do
+                case mLeader of
 
-                u <- show <$> nextRandom
+                    -- Tell the caller to submit elsewhere
+                    Just (leader, _) | leader /= node ->
+                        pure . SubmitResponse $ Left (SubmitElsewhere leader)
 
-                let key      = Key topic seqNum
-                let value    = Value node u val
-                let proposal = ProposeRequest cluster key value
+                    -- Submit here
+                    _ -> do
 
-                doProposal proposal >>= \case
+                        let key      = Key topic seqNum
+                        u <- show <$> nextRandom
+                        let value    = Value node u val
+                        let proposal = ProposeRequest cluster key value
 
-                    Left l -> do error $ "FOo" ++ show l -- printf "Some Error %s\n" (show l)
+                        doProposal proposal >>= \case
 
-                    Right (NotAccepted _) -> do -- printf "Not Accepted: %s %s %s\n" (show x) (show seqNum) (show value)
-                                                loop
+                            Left serverError -> left $ fromServerError serverError
 
-                    Right NoHighestNackRoundNo -> do -- printf "No Highest Nack: %s %s\n" (show seqNum) (show value)
-                                                     loop
+                            Right (NotAccepted _) -> loop
 
-                    Right (Accepted (Value sender u' val')) -> do
+                            Right NoHighestNackRoundNo -> loop
 
-                        handleMessage sender seqNum val'
+                            Right (Accepted (Value sender u' val')) -> do
 
-                        if u' == u
+                                handleMessage sender seqNum val'
 
-                            -- Our message. Done.
-                            then pure . SubmitResponse $ Right (seqNum, val')
+                                if u' == u
 
-                            -- Not our message, try again
-                            else loop
+                                    -- Our message. Done.
+                                    then pure . SubmitResponse $ Right (seqNum, val')
+
+                                    -- Not our message, try again
+                                    else loop
 
         where
-        getDeets :: STM (Set Node, Maybe (Node, SequenceNum), SequenceNum)
+        left = pure . SubmitResponse . Left
+
+        getDeets :: STM (Either Reason (Set Node, Maybe (Node, SequenceNum), SequenceNum))
         getDeets = do
             machineStates <- readTVar tvMachineStates
             case M.lookup topic machineStates of
-                Nothing -> error "No machine state"
+                Nothing -> pure . Left $ NotDefined topic
                 Just (MachineState cluster mLeader seqNum) -> do
                     let seqNum' = next seqNum
                     writeTVar tvMachineStates (M.insert topic (MachineState cluster mLeader seqNum') machineStates)
-                    pure (cluster, mLeader, seqNum')
+                    pure $ Right (cluster, mLeader, seqNum')
 
         doProposal :: ProposeRequest -> IO (Either ServerError ProposeResponse)
         doProposal = runHandler . propose proposer
@@ -182,39 +179,50 @@ submitImpl node proposer journalLocks journal tvMachineStates (SubmitRequest top
             withLocked journalLocks topic $ \lockedTopic ->
                 writeEntries journal lockedTopic [(seqNum', val')]
 
-catchupImpl :: TVar (Map Topic MachineState)
+catchupImpl :: Node
+            -> TVar (Map Topic MachineState)
             -> Learner m
             -> (Node -> PeerClient ClientError)
             -> Locks Topic
             -> Journal
             -> CatchupRequest
             -> IO CatchupResponse
-catchupImpl tvMachineStates learner peerer journalLocks journal (CatchupRequest topic seqNums) = do
+catchupImpl node tvMachineStates learner peerer journalLocks journal (CatchupRequest topic seqNums) =
 
-    -- 1) First pass - check own paxos logs for the values
-    peeked <- S.fromList <$> peek learner topic seqNums
+    (M.lookup topic <$> readTVarIO tvMachineStates) >>= \case
 
-    let nonLocal = S.fromList seqNums \\ S.map fst peeked
+        Nothing -> pure $ ErrNoSuchTopic topic
 
-    fromPeers <- if null nonLocal
+        Just machineState -> do
 
-                     then pure mempty
+            let otherNodes = filter (/=node) . S.toList . getCluster $ machineState
 
-                     else do
-                         printf "STILL MISSING: %s\n" (show nonLocal)
-                         Just machineState <- M.lookup topic <$> readTVarIO tvMachineStates
-                         xs <- forM (S.toList . getCluster $ machineState) $ \other -> do
-                             Right (PeerResponse x) <- peerer other (PeerRequest topic seqNums)
-                             pure x
-                         pure $ mconcat xs
+            let seqNumsSet = S.fromList seqNums
 
-    -- 2) TODO (unless null)...
-    --    write out discovered values
-    withLocked journalLocks topic $ \lockedTopic ->
-        writeEntries journal lockedTopic $ S.toList peeked
+            -- Check own paxos logs for the values
+            learnedLocally <- S.fromList <$> peek learner topic seqNums
 
-    -- 4) TODO check if all requesteds were responded
-    pure . CatchupResponse . S.toList $ peeked
+            let nonLocal = seqNumsSet \\ S.map fst learnedLocally
+
+            -- Ask peers for values
+            learnedFromPeers <- if null nonLocal
+                                    then pure mempty
+                                    else do
+                                        xs <- forM otherNodes $ \other -> do
+                                            Right (PeerResponse x) <- peerer other (PeerRequest topic seqNums)
+                                            pure $! S.fromList x
+                                        pure $ mconcat xs
+
+            let learned = learnedLocally <> learnedFromPeers
+
+            -- Record if any new values were learned
+            unless (null learned) $
+                withLocked journalLocks topic $ \lockedTopic ->
+                    writeEntries journal lockedTopic $ S.toList learned
+
+            case S.toList (seqNumsSet \\ S.map fst learned) of
+                [] -> pure CaughtUp
+                sm -> pure $ StillMissing sm
 
 _peerImpl :: Locks Topic
           -> Journal

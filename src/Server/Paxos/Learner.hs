@@ -17,11 +17,10 @@ import           Server.Locks
 import           Server.Paxos.LearnerState
 
 import           Control.Concurrent.Async (forConcurrently)
-import           Control.Monad          (forM)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Functor           ((<&>))
+import           Control.Monad.IO.Class   (MonadIO, liftIO)
+import           Data.Functor             ((<&>))
 import qualified Data.Map.Strict as M
-import           Data.Maybe             (catMaybes)
+import           Data.Maybe               (catMaybes)
 
 data Learner m =
     Learner { learn :: !(LearnRequest -> m ValueResponseM)
@@ -77,7 +76,7 @@ peekImpl :: Id
          -> [SequenceNum]
          -> IO [(SequenceNum, Val)]
 peekImpl myId topicLocks topic seqNums =
-    catMaybes <$> (forConcurrently seqNums $ \seqNum ->
+    catMaybes <$> forConcurrently seqNums (\seqNum ->
         withLocked topicLocks (topic, seqNum) $ \lock ->
             getLearnerState myId lock <&> \case
                 Consensus (Value _ _ val) -> Just (seqNum, val)

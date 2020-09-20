@@ -4,17 +4,18 @@
 
 module Entity.CatchupResponse where
 
-import Entity.SequenceNum
-import Entity.Value
+import Entity.SequenceNum (SequenceNum)
+import Entity.Topic       (Topic)
 
 import Codec.Serialise (Serialise, serialise, deserialise)
 import Control.DeepSeq (NFData)
 import GHC.Generics    (Generic)
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-newtype CatchupResponse =
-    CatchupResponse [(SequenceNum, Val)]
-        deriving (Generic, Serialise, NFData, Show)
+data CatchupResponse = CaughtUp
+                     | StillMissing ![SequenceNum]
+                     | ErrNoSuchTopic !Topic
+                        deriving (Generic, Serialise, NFData, Show)
 
 instance MimeRender OctetStream CatchupResponse where
     mimeRender _ = serialise

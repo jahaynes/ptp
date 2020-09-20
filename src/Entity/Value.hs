@@ -17,7 +17,7 @@ data Value =
     Value Node !String !Val
         deriving (Eq, Generic, Serialise, NFData)
 
-data Val = SimpleValue String
+newtype Val = SimpleValue String
         -- | CommandValue !Command
              deriving (Eq, Ord, Generic, Serialise, NFData)
 
