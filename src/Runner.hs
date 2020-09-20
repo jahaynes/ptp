@@ -1,39 +1,45 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Runner (runTests) where
 
 import Client.WebNodeClient
+import Entity.CatchupRequest
 import Entity.CreateTopicRequest
+-- import Entity.SequenceNum
 import Entity.SubmitRequest
+import Entity.SubmitResponse
 import Entity.Topic
 import Entity.Value
 import Node
 import Server.Paxos.StateMachine
 
-import           Control.Concurrent.Async (replicateConcurrently_)
+import           Control.Concurrent.Async (forConcurrently_, replicateConcurrently_)
 import           Control.Monad            (forM_, replicateM_)
 import           Data.IORef
-import           Data.Map.Strict
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import           Network.HTTP.Client
 import           System.Random            (randomRIO)
 import           Text.Printf              (printf)
 
 runTests :: [Node] -> Topic -> [StateMachine m] -> IO ()
-runTests startingNodes topic stateMachines = do
+runTests nodes topic stateMachines = do
 
     http <- newManager $ defaultManagerSettings
-                { managerResponseTimeout = responseTimeoutMicro 3000000 }
+                { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
     printf "\nCreating topic: %s...\n" (show topic)
-    mapM_ (\node -> createTopicBuilder http node (CreateTopicRequest (S.fromList startingNodes) topic)) startingNodes
+    mapM_ (\node -> createTopicBuilder http node (CreateTopicRequest (S.fromList nodes) topic)) nodes
 
     -- _runSimpleTest http
     _runParallelTest http
 
+    putStrLn "Checking results"
     checkResults
 
     where
     _runSimpleTest http =
-        runBulkInsert http 40
+        runBulkInsert http 100
 
     _runParallelTest http =
         replicateConcurrently_ 4 $ _runSimpleTest http
@@ -41,12 +47,12 @@ runTests startingNodes topic stateMachines = do
     checkResults :: IO ()
     checkResults = do
 
-        ioMap <- newIORef empty
+        ioMap <- newIORef M.empty
         forM_ stateMachines $ \sm ->
             dump sm topic $ \(s,v) ->
-                modifyIORef' ioMap $ \m -> alter (f s v) s m
+                modifyIORef' ioMap $ \m -> M.alter (f s v) s m
 
-        results <- toList <$> readIORef ioMap
+        results <- M.toList <$> readIORef ioMap
         mapM_ print results
 
         where
@@ -57,14 +63,34 @@ runTests startingNodes topic stateMachines = do
 
     runBulkInsert :: Manager -> Int -> IO ()
     runBulkInsert http n = do
+
         printf "Sending messages...\n"
+
         replicateM_ n $ do
-            r <- randomRIO (0::Int, 1000)
-            let val = SimpleValue (printf "hello_%d" r)
-            chosen <- choice startingNodes
-            printf "Submitting to %s value %s\n" (show chosen) (show val)
-            Right _ <- submitBuilder http chosen (SubmitRequest topic val)
-            pure ()
+
+            rand <- randomRIO (0::Int, 100000)
+            let val = SimpleValue (printf "hello_%d" rand)
+
+            chosen <- choice nodes
+
+            let loop node =
+
+                    submitBuilder http node (SubmitRequest topic val) >>= \case
+
+                        Left l -> error $ show l
+
+                        Right (SubmitResponse (Left (SubmitElsewhere leader))) -> loop leader
+
+                        Right (SubmitResponse (Right (s, v))) -> do
+
+                            -- On success notify others
+                            forConcurrently_ (filter (/=chosen) nodes) $ \other -> do
+                                _ <- catchupBuilder http other (CatchupRequest topic [s])
+                                pure ()
+
+                            print (s,v)
+
+            loop chosen
 
         where
         choice :: [a] -> IO a
