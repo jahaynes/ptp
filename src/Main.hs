@@ -8,6 +8,7 @@ import           Entity.SequenceNum
 import           Entity.Topic                   (Topic (..))
 import           Entity.Value
 import           Journal                   as J (create)
+import           Requests.Catchup
 import           Requests.CreateTopic
 import           Requests.Join
 import           Requests.ReadJournal
@@ -24,7 +25,6 @@ import qualified Server.Paxos.Proposer     as P (Proposer (..), create)
 import           Control.Concurrent         (newEmptyMVar, putMVar, takeMVar)
 import           Control.Concurrent.Async   (async, forConcurrently, forConcurrently_, mapConcurrently, wait)
 import           Control.Monad              (forM_, when)
-import           Data.List.Split            (chunksOf)
 import           Data.Proxy                 (Proxy (Proxy))
 import qualified Data.Set as S
 import           Data.Word                  (Word64)
@@ -70,6 +70,7 @@ runExecutor http callbackMap node@(Node ident (Port port)) = do
     _ <- async . runSettings settings $
         serve (Proxy :: Proxy NodeApi) $ E.join executor
                                     :<|> E.ping executor
+                                    :<|> E.catchup executor
                                     :<|> E.createTopic executor
                                     :<|> E.submitCluster executor
                                     :<|> E.submitNode executor
@@ -105,8 +106,8 @@ main = do
     let numData     = sum [firstBatch, secondBatch, thirdBatch]
 
     -- Create the topics
-    forM_ topics $ \topic ->
-        forM_ allNodes $ \node ->
+    forConcurrently_ topics $ \topic ->
+        forConcurrently_ allNodes $ \node ->
             createTopicBuilder http node (CreateTopicRequest topic (S.fromList allNodes)) >>= \case
                 Left e -> error $ show e
                 Right (CreateTopicResponse (Right ())) -> printf "%s created on node %s\n" (show topic) (show node)
@@ -130,16 +131,8 @@ main = do
     host <- choice allNodes
 
     -- Pre-join catchup phase
-    j3 <- async . forConcurrently_ topics $ \topic -> do
-        Right (SequenceNumResponse (Just (SequenceNum sn))) <- sequenceNumBuilder http host (SequenceNumRequest topic)
-        let gatherRanges = chunksOf 20 [1..sn]
-        printf "pre-gathering %s\n" (show gatherRanges)
-        -- TODO check all were actually fetched
-        forM_ gatherRanges $ \gatherRange ->
-            readJournalBuilder http host (ReadJournalRequest topic (map SequenceNum gatherRange)) >>= \case
-                Left e -> error $ show e
-                Right (ReadJournalResponse responses) ->
-                    forM_ responses $ \(s',v') -> E.callback newExecutor E.Catchup topic s' v'
+    j3 <- async . forConcurrently_ topics $ \topic ->
+        catchupBuilder http newNode (CatchupRequest host topic)
 
     -- Spam the values
     j4 <- async . forConcurrently_ topics $ \topic ->
@@ -153,18 +146,28 @@ main = do
     wait j4
 
     -- Join and post-join catchup phase
-    j5 <- async . forConcurrently_ topics $ \topic -> do
+    j5 <- async . forConcurrently_ topics $ \topic ->
+
+        -- Tell host to Propose that newNode is now part of the cluster
         joinBuilder http host (JoinPrepare topic newNode) >>= \case
             Left l -> error $ show l
             Right (JoinedAt (SequenceNum _end)) ->
+
+                -- Ask new node what sequence number it's up to
+                -- TODO - shouldn't need to http becaues asking self
                 sequenceNumBuilder http newNode (SequenceNumRequest topic) >>= \case
                     Left l -> error $ show l
                     Right (SequenceNumResponse (Just (SequenceNum start))) ->
-                        let loop sn = do
+                        -- TODO: optimise for more than one-at-a-time
+                        let loop sn =
+
+                                -- Ask host for the next value
                                 readJournalBuilder http host (ReadJournalRequest topic [SequenceNum sn]) >>= \case
                                     Left e -> error $ show e
                                     Right (ReadJournalResponse responses) ->
                                         forM_ responses $ \(s',v') -> do
+
+                                            -- Journal the asked value
                                             mode <- E.callback newExecutor E.Catchup topic s' v'
                                             when (mode == E.Catchup) (loop $ sn + 1)
                         in loop (start + 1)

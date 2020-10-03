@@ -9,4 +9,4 @@ import GHC.Generics    (Generic)
 
 newtype Port =
     Port Int
-        deriving (Eq, Ord, Generic, Serialise, NFData, Show)
+        deriving (Eq, Ord, Generic, Serialise, NFData)

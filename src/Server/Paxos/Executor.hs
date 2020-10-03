@@ -2,12 +2,13 @@
 
 module Server.Paxos.Executor where
 
-import Client.WebNodeClient       (PingClient, pingBuilder, submitNodeBuilder)
+import Client.WebNodeClient       (PingClient, pingBuilder, readJournalBuilder, sequenceNumBuilder, submitNodeBuilder)
 import Entity.Node
 import Entity.SequenceNum
 import Entity.Topic
 import Entity.Value
 import Journal                    (Journal (..))
+import Requests.Catchup
 import Requests.CreateTopic
 import Requests.Join
 import Requests.Ping
@@ -21,9 +22,11 @@ import Server.Locks
 import Server.Paxos.Proposer      (Proposer (..))
 
 import           Control.Concurrent.STM
+import           Control.Monad          (forM_)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Either            (rights)
 import           Data.Functor           ((<&>))
+import           Data.List.Split        (chunksOf)
 import           Data.Set               (Set)
 import qualified Data.Set as S
 import           Data.Map               (Map)
@@ -31,11 +34,11 @@ import qualified Data.Map as M
 import           Data.Maybe             (fromMaybe)
 import           Network.HTTP.Client    (Manager)
 import           Servant                (Handler, runHandler)
-import           Servant.Client         (ClientError)
 import           Text.Printf            (printf)
 
 data Executor m =
     Executor { join           :: !(JoinRequest -> m JoinResponse)
+             , catchup        :: !(CatchupRequest -> m CatchupResponse)
              , ping           :: !(Ping -> m Pong)
              , createTopic    :: !(CreateTopicRequest -> m CreateTopicResponse)
              , submitCluster  :: !(SubmitClusterRequest -> m SubmitClusterResponse)
@@ -73,15 +76,39 @@ create self http journal proposer callbackMap = do
 
     let sc = submitClusterImpl http self tvTopicState callbackMap
 
+    let cb = callbackImpl self callbackMap tvTopicState topicLocks journal
+
     pure $ Executor { join           = liftIO . joinImpl tvTopicState pingBuilder' sc
+                    , catchup        = liftIO . catchupImpl http cb
                     , ping           = liftIO . pingImpl pingBuilder'
                     , createTopic    = liftIO . atomically . createTopicImpl tvTopicState
                     , submitCluster  = liftIO . sc
                     , submitNode     = liftIO . submitNodeImpl self proposer tvTopicState
-                    , callback       = callbackImpl self callbackMap tvTopicState topicLocks journal
+                    , callback       = cb
                     , readJournal    = liftIO . readJournalImpl topicLocks journal
                     , getSequenceNum = liftIO . getSequenceNumImpl tvTopicState
                     }
+
+-- CATCHUP PHASE
+-- remember to set catchup mode
+catchupImpl :: Manager
+            -> (Mode -> Topic -> SequenceNum -> Value -> IO Mode)
+            -> CatchupRequest
+            -> IO CatchupResponse
+catchupImpl http cb (CatchupRequest host topic) = do
+
+    -- Ask host what sequence number it's up to
+    Right (SequenceNumResponse (Just (SequenceNum sn))) <- sequenceNumBuilder http host (SequenceNumRequest topic)
+    let gatherRanges = chunksOf 20 [1..sn]
+    printf "pre-gathering %s\n" (show gatherRanges)
+    -- TODO check all were actually fetched
+    forM_ gatherRanges $ \gatherRange ->
+        readJournalBuilder http host (ReadJournalRequest topic (map SequenceNum gatherRange)) >>= \case
+            Left e -> error $ show e
+            Right (ReadJournalResponse responses) ->
+                forM_ responses $ \(s',v') ->
+                    cb Catchup topic s' v'
+    pure CatchupResponse
 
 createTopicImpl :: TVar (Map Topic ExecutorState)
                 -> CreateTopicRequest
@@ -362,8 +389,6 @@ joinImpl tvTopicState pingBuilder' submitCluster (JoinPrepare topic joiner) = do
                             SubmitClusterResponse (Right seqNum) <- submitCluster (SubmitClusterRequest topic (CommandValue (AddNode joiner)))
                             pure $ JoinedAt seqNum
 
--- TODO should this redirect and ask for leader's executorstate instead?
--- ramifications are for joiner trying to connect to a non-leader node
 getSequenceNumImpl :: TVar (Map Topic ExecutorState)
                    -> SequenceNumRequest
                    -> IO SequenceNumResponse

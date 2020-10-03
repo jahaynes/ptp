@@ -48,6 +48,7 @@ library ptp-lib
                        Entity.Value,
                        Quorum,
                        Requests.Accept,
+                       Requests.Catchup,
                        Requests.CreateTopic,
                        Requests.Join,
                        Requests.Learn,
@@ -81,6 +82,7 @@ executable ptp
                        Journal,
                        Quorum,
                        Requests.Accept,
+                       Requests.Catchup
                        Requests.CreateTopic,
                        Requests.Join,
                        Requests.Learn,

@@ -27,7 +27,7 @@ data JoinResponse = JoinNoSuchTopic
                   | JoinClusterNotFullyResponsive
                   | JoinerNotResponsive
                   | JoinedAt !SequenceNum
-        deriving (Generic, Serialise, Show)
+        deriving (Generic, Serialise)
 
 instance MimeRender OctetStream JoinResponse where
     mimeRender _ = serialise

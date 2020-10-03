@@ -26,7 +26,7 @@ instance MimeUnrender OctetStream PrepareRequest where
 
 newtype PrepareResponse =
     PrepareResponse (Either Nack Promise)
-        deriving (Generic, Serialise, NFData)
+        deriving (Generic, Serialise)
 
 instance MimeRender OctetStream PrepareResponse where
     mimeRender _ = serialise

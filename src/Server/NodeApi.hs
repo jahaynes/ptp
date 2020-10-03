@@ -4,6 +4,7 @@
 module Server.NodeApi where
 
 import Requests.Accept
+import Requests.Catchup
 import Requests.CreateTopic
 import Requests.Join
 import Requests.Learn
@@ -21,6 +22,8 @@ import Servant.API
 type NodeApi = "executor" :> "join"          :> ReqBody '[OctetStream] JoinRequest          :> Post '[OctetStream] JoinResponse
 
           :<|> "executor" :> "ping"          :> ReqBody '[OctetStream] Ping                 :> Post '[OctetStream] Pong
+
+          :<|> "executor" :> "catchup"       :> ReqBody '[OctetStream] CatchupRequest       :> Post '[OctetStream] CatchupResponse
 
           :<|> "executor" :> "createTopic"   :> ReqBody '[OctetStream] CreateTopicRequest   :> Post '[OctetStream] CreateTopicResponse
 

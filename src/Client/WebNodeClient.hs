@@ -3,6 +3,7 @@ module Client.WebNodeClient where
 import Entity.Node
 import Entity.Port
 import Requests.Accept
+import Requests.Catchup
 import Requests.CreateTopic
 import Requests.Join
 import Requests.Learn
@@ -19,20 +20,22 @@ import Network.HTTP.Client      (Manager)
 import Servant
 import Servant.Client
 
-type JoinClient        e =        JoinRequest -> IO (Either e JoinResponse)
-type PingClient        e =               Ping -> IO (Either e Pong)
-type CreateTopicClient e = CreateTopicRequest -> IO (Either e CreateTopicResponse)
-type SubmitClusterClient  e =  SubmitClusterRequest -> IO (Either e SubmitClusterResponse)
-type SubmitNodeClient  e =  SubmitNodeRequest -> IO (Either e SubmitNodeResponse)
-type ReadJournalClient e = ReadJournalRequest -> IO (Either e ReadJournalResponse)
-type SequenceNumClient e = SequenceNumRequest -> IO (Either e SequenceNumResponse)
-type ProposeClient     e =     ProposeRequest -> IO (Either e ProposeResponse)
-type PrepareClient     e =     PrepareRequest -> IO (Either e PrepareResponse)
-type AcceptClient      e =      AcceptRequest -> IO (Either e AcceptResponse)
-type LearnClient       e =       LearnRequest -> IO (Either e LearnResponse)
+type JoinClient          e =           JoinRequest -> IO (Either e JoinResponse)
+type PingClient          e =                  Ping -> IO (Either e Pong)
+type CatchupClient       e =        CatchupRequest -> IO (Either e CatchupResponse)
+type CreateTopicClient   e =    CreateTopicRequest -> IO (Either e CreateTopicResponse)
+type SubmitClusterClient e =  SubmitClusterRequest -> IO (Either e SubmitClusterResponse)
+type SubmitNodeClient    e =     SubmitNodeRequest -> IO (Either e SubmitNodeResponse)
+type ReadJournalClient   e =    ReadJournalRequest -> IO (Either e ReadJournalResponse)
+type SequenceNumClient   e =    SequenceNumRequest -> IO (Either e SequenceNumResponse)
+type ProposeClient       e =        ProposeRequest -> IO (Either e ProposeResponse)
+type PrepareClient       e =        PrepareRequest -> IO (Either e PrepareResponse)
+type AcceptClient        e =         AcceptRequest -> IO (Either e AcceptResponse)
+type LearnClient         e =          LearnRequest -> IO (Either e LearnResponse)
 
 join          ::  JoinRequest          -> ClientM JoinResponse
 ping          ::  Ping                 -> ClientM Pong
+catchup       ::  CatchupRequest       -> ClientM CatchupResponse
 createTopic   ::  CreateTopicRequest   -> ClientM CreateTopicResponse
 submitCluster ::  SubmitClusterRequest -> ClientM SubmitClusterResponse
 submitNode    ::  SubmitNodeRequest    -> ClientM SubmitNodeResponse
@@ -44,6 +47,7 @@ accept        ::  AcceptRequest        -> ClientM AcceptResponse
 learn         ::   LearnRequest        -> ClientM LearnResponse
 join
     :<|> ping
+    :<|> catchup
     :<|> createTopic
     :<|> submitCluster
     :<|> submitNode
@@ -63,6 +67,11 @@ pingBuilder :: Manager -> Node -> PingClient ClientError
 pingBuilder http (Node _ (Port p)) = do
     let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
     (\pr -> runClientM (ping pr) env)
+
+catchupBuilder :: Manager -> Node -> CatchupClient ClientError
+catchupBuilder http (Node _ (Port p)) = do
+    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+    (\cr -> runClientM (catchup cr) env)
 
 createTopicBuilder :: Manager -> Node -> CreateTopicClient ClientError
 createTopicBuilder http (Node _ (Port p)) = do

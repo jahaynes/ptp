@@ -65,16 +65,17 @@ prepareService :: Locks (Topic, SequenceNum)
                -> (Locked (Topic, SequenceNum) -> AcceptorState -> IO ())
                -> PrepareRequest
                -> IO PrepareResponse
-prepareService topicLocks getAcceptorSubState putAcceptorSubState (PrepareRequest topic seqNum n) =
+prepareService topicLocks getAcceptorSubState putAcceptorSubState (PrepareRequest topic seqNum n) = do
     -- TODO try limited the scope of this lock
     -- This scope appears to just be a single topic/seqnum.as
-    withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
+    r <- withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
         state <- getAcceptorSubState lockedTopic
         if Just n > acc_notLessThan state
             then do
                 putAcceptorSubState lockedTopic $! state {acc_notLessThan = Just n}
-                pure . PrepareResponse . Right $ Promise n (acc_proposal state)
-            else pure . PrepareResponse . Left . Nack . fromJust . acc_notLessThan $ state
+                pure . Right $ Promise n (acc_proposal state)
+            else pure . Left . Nack . fromJust . acc_notLessThan $ state
+    pure $ PrepareResponse r
 
 acceptService :: Show e => Id
               -> (Node -> LearnClient e)
