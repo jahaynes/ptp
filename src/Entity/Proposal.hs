@@ -12,4 +12,4 @@ import GHC.Generics    (Generic)
 
 data Proposal = Proposal { getProposalNumber :: !ProposalNumber
                          , getProposalValue  :: !Value }
-                             deriving (Generic, Serialise, NFData, Show)
+                             deriving (Generic, Serialise, NFData)

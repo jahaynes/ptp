@@ -1,53 +1,60 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveAnyClass,
+             DeriveGeneric,
+             LambdaCase      #-}
 
 module Server.Paxos.Learner ( Learner (..)
                             , create
                             ) where
 
 import           Entity.Id
-import           Entity.Key
-import           Entity.LearnRequest
 import           Entity.SequenceNum
 import           Entity.Topic
 import           Entity.Value
-import           Entity.ValueResponse
-import           Quorum                    (threshold, majority)
-import           Server.Files              (readSubState, writeSubState)
+import           Quorum             (threshold, majority)
+import           Requests.Learn
+import           Server.Files       (readSubState, writeSubState)
 import           Server.Locks
-import           Server.Paxos.LearnerState
 
-import           Control.Concurrent.Async (forConcurrently)
-import           Control.Monad.IO.Class   (MonadIO, liftIO)
-import           Data.Functor             ((<&>))
+import           Codec.Serialise        (Serialise)
+import           Control.DeepSeq        (NFData)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Data.Functor           ((<&>))
+import           Data.Map.Strict        (Map)
 import qualified Data.Map.Strict as M
-import           Data.Maybe               (catMaybes)
+import           GHC.Generics           (Generic)
 
-data Learner m =
-    Learner { learn :: !(LearnRequest -> m ValueResponseM)
-            , peek  :: !(Topic -> [SequenceNum] -> IO [(SequenceNum, Val)])
+-- import           Text.Printf              (printf)
+
+newtype Learner m =
+    Learner { learn :: LearnRequest -> m LearnResponse
             }
+
+data LearnerState = AcceptedProposals !(Map Id Value)
+                  | Consensus !Value
+                      deriving (Generic, NFData, Serialise)
 
 create :: MonadIO m => Id
                     -> Locks (Topic, SequenceNum)
+                    -> (Topic -> SequenceNum -> Value -> IO a)
                     -> IO (Learner m)
-create myId topicLocks =
-    pure $ Learner { learn = liftIO . learnService myId topicLocks
-                   , peek  = peekImpl myId topicLocks
-                   }
+create myId topicLocks callback =
+    pure $ Learner { learn = liftIO . learnService myId topicLocks callback }
 
 learnService :: Id
              -> Locks (Topic, SequenceNum)
+             -> (Topic -> SequenceNum -> Value -> IO a)
              -> LearnRequest
-             -> IO ValueResponseM
+             -> IO LearnResponse
 learnService myId
              topicLocks
-             (LearnRequest nodes (Key topic seqNum) acceptorId value) =
+             callback
+             (LearnRequest nodes topic seqNum acceptorId value) = do
 
-    withLocked topicLocks (topic, seqNum) $ \lockedTopic ->
+    mMaj <- withLocked topicLocks (topic, seqNum) $ \lockedTopic ->
 
-        getLearnerState myId lockedTopic >>= \case
+        getLearnerState lockedTopic >>= \case
 
-            Consensus c -> pure . ValueResponseM $ Just c
+            Consensus c -> pure $ Just c
 
             AcceptedProposals aps -> do
 
@@ -57,6 +64,7 @@ learnService myId
                     mMaj   = majority values (threshold numAcceptors)
 
                 let learnerState =
+
                         case mMaj of
 
                             Nothing -> --No consensus yet
@@ -67,23 +75,20 @@ learnService myId
 
                 writeSubState myId lockedTopic seqNum "ls" learnerState
 
-                pure $ ValueResponseM mMaj
+                case mMaj of
+                    Nothing  -> pure ()
+                    Just maj -> do
+                        -- printf "Learned %s->%s\n" (show seqNum) (show maj)
+                        _ <- callback topic seqNum maj
+                        pure ()
 
--- TODO excessive locking
-peekImpl :: Id
-         -> Locks (Topic, SequenceNum)
-         -> Topic
-         -> [SequenceNum]
-         -> IO [(SequenceNum, Val)]
-peekImpl myId topicLocks topic seqNums =
-    catMaybes <$> forConcurrently seqNums (\seqNum ->
-        withLocked topicLocks (topic, seqNum) $ \lock ->
-            getLearnerState myId lock <&> \case
-                Consensus (Value _ _ val) -> Just (seqNum, val)
-                _                         -> Nothing)
+                pure mMaj
 
-getLearnerState :: Id -> Locked (Topic, SequenceNum) -> IO LearnerState
-getLearnerState myId locked@(Locked (_, seqNum)) =
-    readSubState myId locked seqNum "ls" <&> \case
-        Just f  -> f
-        Nothing -> AcceptedProposals M.empty
+    pure $ LearnResponse mMaj
+
+    where
+    getLearnerState :: Locked (Topic, SequenceNum) -> IO LearnerState
+    getLearnerState locked@(Locked (_, seqNum')) =
+        readSubState myId locked seqNum' "ls" <&> \case
+            Just f  -> f
+            Nothing -> AcceptedProposals M.empty

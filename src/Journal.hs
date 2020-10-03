@@ -8,18 +8,17 @@ module Journal ( Journal (..)
 import Entity.Id
 import Entity.SequenceNum
 import Entity.Topic
-import Entity.Value
 import Server.Locks
 
-import           Codec.Serialise             (deserialise, serialise)
-import           Control.DeepSeq             ((<$!!>), deepseq)
+import           Codec.Serialise             (Serialise, deserialise, serialise)
+import           Control.DeepSeq             (NFData, (<$!!>), deepseq)
 import           Control.Monad               (forM, forM_, when, unless)
 import           Data.Binary.Get
 import           Data.Binary.Put
 import qualified Data.ByteString.Lazy as LBS
 import           Data.Maybe                  (catMaybes)
 import           Data.Word                   (Word32, Word64)
-import           RIO.File                    (withBinaryFileDurable)
+-- import           RIO.File                    (withBinaryFileDurable)
 import           System.Directory            (createDirectoryIfMissing, doesFileExist)
 import           System.IO                   (Handle, SeekMode (..), IOMode(..), hSeek, hFileSize, hSetFileSize, withBinaryFile)
 import           Text.Printf                 (printf)
@@ -28,10 +27,10 @@ import           Text.Printf                 (printf)
 
 -- TODO try-catch on everything here
 
-data Journal =
-    Journal { readEntries    :: !(Locked Topic -> [SequenceNum] -> IO [(SequenceNum, Val)])
-            , writeEntries   :: !(Locked Topic -> [(SequenceNum, Val)] -> IO ())
-            , dumpJournal    :: !(Locked Topic -> ((SequenceNum, Val) -> IO ()) -> IO ())
+data Journal v =
+    Journal { readEntries    :: !(Locked Topic -> [SequenceNum] -> IO [(SequenceNum, v)])
+            , writeEntries   :: !(Locked Topic -> [(SequenceNum, v)] -> IO ())
+            , dumpJournal    :: !(Locked Topic -> ((SequenceNum, v) -> IO ()) -> IO ())
             }
 
 data Index = -- Can't use Serial here - need fixed width for O(1) access
@@ -39,17 +38,18 @@ data Index = -- Can't use Serial here - need fixed width for O(1) access
           , _end   :: !Word32
           }
 
-create :: Id -> IO Journal
+create :: (Serialise v, NFData v) => Id
+                                  -> IO (Journal v)
 create ident =
     pure $ Journal { readEntries  = readEntriesImpl  ident
                    , writeEntries = writeEntriesImpl ident
                    , dumpJournal  = dumpJournalImpl  ident
                    }
 
-readEntriesImpl :: Id
-                -> Locked Topic
-                -> [SequenceNum]
-                -> IO [(SequenceNum, Val)]
+readEntriesImpl :: (Serialise v, NFData v) => Id
+                                           -> Locked Topic
+                                           -> [SequenceNum]
+                                           -> IO [(SequenceNum, v)]
 readEntriesImpl ident topic seqNums = do
 
     let idxPath = getIndexFile ident topic
@@ -69,7 +69,7 @@ readEntriesImpl ident topic seqNums = do
                             val `deepseq` pure $ Just (seqNum, val))
 
     where
-    readEntry :: Handle -> Index -> IO Val
+    readEntry :: (Serialise v, NFData v) => Handle -> Index -> IO v
     readEntry h (Index pos sz) = do
         hSeek h AbsoluteSeek (fromIntegral pos)
         deserialise <$!!> LBS.hGet h (fromIntegral sz)
@@ -85,27 +85,27 @@ readEntriesImpl ident topic seqNums = do
                 hSeek h AbsoluteSeek (12 * n')
                 pos <- runGet getWord64le <$!!> LBS.hGet h 8
                 sz  <- runGet getWord32le <$!!> LBS.hGet h 4
-                case pos of
-                    0 -> pure Nothing
-                    _ -> pure . Just $ Index pos sz
+                pure $ case pos of
+                           0 -> Nothing
+                           _ -> Just $ Index pos sz
 
     -- To check - make sure to reset handles between invocations?
-writeEntriesImpl :: Id
-                 -> Locked Topic
-                 -> [(SequenceNum, Val)]
-                 -> IO ()
+writeEntriesImpl :: Serialise v => Id
+                                -> Locked Topic
+                                -> [(SequenceNum, v)]
+                                -> IO ()
 writeEntriesImpl ident topic seqVals = do
     createDirectoryIfMissing True (getJournalDir ident topic)
-    withBinaryFileDurable (getJournalFile ident topic) AppendMode $ \jrnH ->
-        withBinaryFileDurable (getIndexFile ident topic) ReadWriteMode $ \idxH ->
+    withBinaryFile (getJournalFile ident topic) AppendMode $ \jrnH ->
+        withBinaryFile (getIndexFile ident topic) ReadWriteMode $ \idxH ->
             forM_ seqVals $ \(seqNum, val) -> writeEntryImpl jrnH idxH seqNum val
 
     where
-    writeEntryImpl :: Handle
-                   -> Handle
-                   -> SequenceNum
-                   -> Val
-                   -> IO ()
+    writeEntryImpl :: Serialise v => Handle
+                                  -> Handle
+                                  -> SequenceNum
+                                  -> v
+                                  -> IO ()
     writeEntryImpl jrnH idxH (SequenceNum n) v = do
 
         let sv = serialise v
@@ -135,10 +135,10 @@ writeEntriesImpl ident topic seqVals = do
         LBS.hPut idxH . runPut $ do putWord64le (fromIntegral valuePos)
                                     putWord32le (fromIntegral valueSz)
 
-dumpJournalImpl :: Id
-                -> Locked Topic
-                -> ((SequenceNum, Val) -> IO ())
-                -> IO ()
+dumpJournalImpl :: (Serialise v, NFData v) => Id
+                                           -> Locked Topic
+                                           -> ((SequenceNum, v) -> IO ())
+                                           -> IO ()
 dumpJournalImpl ident topic f = do
 
     let journalPath = getJournalFile ident topic

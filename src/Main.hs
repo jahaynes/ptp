@@ -1,23 +1,39 @@
-import           Client.WebNodeClient             (acceptBuilder, learnBuilder, prepareBuilder)
-import           Entity.Id                        (Id (..))
-import           Entity.Topic                     (Topic (..))
-import qualified Journal                   as J   (create)
-import           Node                             (Node (..))
-import           Port                             (Port (..))
-import           Runner                           (runTests)
-import qualified Server.Paxos.Acceptor     as A   (Acceptor (..), create)
-import qualified Server.Paxos.Learner      as L   (Learner (..), create)
-import qualified Server.Paxos.Proposer     as P   (Proposer (..), create)
-import qualified Server.Paxos.StateMachine as SM  (StateMachine (..), create)
-import           Server.Locks                     (newLocks)
-import           Server.NodeApi                   (NodeApi)
+{-# LANGUAGE LambdaCase #-}
 
-import Control.Concurrent.Async   (async)
-import Data.Proxy                 (Proxy (Proxy))
-import Network.HTTP.Client hiding (Proxy, port)
-import Network.Wai.Handler.Warp   (run)
-import Servant                    (Handler, serve)
-import Servant.API
+import           Client.WebNodeClient
+import           Entity.Id                      (Id (..))
+import           Entity.Node                    (Node (..))
+import           Entity.Port                    (Port (..))
+import           Entity.SequenceNum
+import           Entity.Topic                   (Topic (..))
+import           Entity.Value
+import           Journal                   as J (create)
+import           Requests.CreateTopic
+import           Requests.Join
+import           Requests.ReadJournal
+import           Requests.SequenceNum
+import qualified Server.CallbackMap        as C (CallbackMap (..), create)
+import           Server.Locks                   (newLocks)
+import           Server.NodeApi                 (NodeApi)
+import qualified Server.Paxos.Acceptor     as A (Acceptor (..), create)
+import qualified Server.Paxos.Executor     as E
+import qualified Server.Paxos.Learner      as L (Learner (..), create)
+import qualified Server.Paxos.Proposer     as P (Proposer (..), create)
+
+import           Control.Concurrent         (newEmptyMVar, putMVar, takeMVar)
+import           Control.Concurrent.Async   (async, forConcurrently, forConcurrently_, mapConcurrently, wait)
+import           Control.Monad              (forM_, when)
+import           Data.List.Split            (chunksOf)
+import           Data.Proxy                 (Proxy (Proxy))
+import qualified Data.Set as S
+import           Data.Word                  (Word64)
+import           Network.HTTP.Client hiding (Proxy, host, port)
+import           Network.Wai.Handler.Warp   (runSettings, setBeforeMainLoop, setPort, defaultSettings)
+import           Servant                    (Handler, serve)
+--import           Servant.Client             (ClientError)
+import           Servant.API
+import           System.Random
+import           Text.Printf                (printf)
 
 createIds :: Int -> [Node]
 createIds n = do
@@ -26,38 +42,156 @@ createIds n = do
         ids   = map (Id . show) range
     zipWith Node ids ports
 
-runNode :: Node -> IO (SM.StateMachine Handler)
-runNode node@(Node ident (Port port)) = do
+runExecutor :: Manager
+            -> C.CallbackMap
+            -> Node
+            -> IO (E.Executor Handler)
+runExecutor http callbackMap node@(Node ident (Port port)) = do
 
-    proposer <- P.create prepareBuilder acceptBuilder
+    proposer      <- P.create (prepareBuilder http) (acceptBuilder http)
 
     acceptorLocks <- newLocks
-    acceptor      <- A.create ident acceptorLocks learnBuilder
+    acceptor      <- A.create ident acceptorLocks (learnBuilder http)
 
-    learnerLocks <- newLocks
-    learner      <- L.create ident learnerLocks
+    journal       <- J.create ident
 
-    http         <- newManager $ defaultManagerSettings { managerResponseTimeout = responseTimeoutMicro 10000000 }
-    journal      <- J.create ident
-    stateMachine <- SM.create node http journal proposer learner
+    executor      <- E.create node http journal proposer callbackMap
 
-    _ <- async . run port $ serve (Proxy :: Proxy NodeApi) $ P.propose proposer
-                                                        :<|> A.prepare acceptor
-                                                        :<|> A.accept acceptor
-                                                        :<|> L.learn learner
-                                                        :<|> SM.catchup stateMachine
-                                                        :<|> SM.createTopic stateMachine
-                                                        :<|> SM.peer stateMachine
-                                                        :<|> SM.submit stateMachine
-    pure stateMachine
+    learnerLocks  <- newLocks
+    learner       <- L.create ident learnerLocks (E.callback executor E.Regular)
+
+    serverReady   <- newEmptyMVar
+
+    let settings = setPort port
+                 . setBeforeMainLoop (putMVar serverReady ())
+                 $ defaultSettings
+
+    _ <- async . runSettings settings $
+        serve (Proxy :: Proxy NodeApi) $ E.join executor
+                                    :<|> E.ping executor
+                                    :<|> E.createTopic executor
+                                    :<|> E.submit executor
+                                    :<|> E.readJournal executor
+                                    :<|> E.getSequenceNum executor
+                                    :<|> P.propose proposer
+                                    :<|> A.prepare acceptor
+                                    :<|> A.accept acceptor
+                                    :<|> L.learn learner
+
+    takeMVar serverReady
+
+    pure executor
 
 main :: IO ()
 main = do
 
-    let allNodes = createIds 5
+    let (newNode:allNodes) = createIds 3
 
-    stateMachines <- mapM runNode allNodes
+    http <- newManager $ defaultManagerSettings
+                { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
-    let topic = Topic "some-topic"
+    callbackMap <- C.create
+    executors   <- mapConcurrently (runExecutor http callbackMap) allNodes
 
-    runTests allNodes topic stateMachines
+    newExecutor <- runExecutor http callbackMap newNode
+
+    -- Create sample data
+    let topics      = map (\n -> Topic ("topic_" ++ show n)) [(1::Int)..3]
+    let firstBatch  = 100
+    let secondBatch = 100
+    let thirdBatch  = 100
+    let numData     = sum [firstBatch, secondBatch, thirdBatch]
+
+    -- Create the topics
+    forM_ topics $ \topic ->
+        forM_ allNodes $ \node ->
+            createTopicBuilder http node (CreateTopicRequest topic (S.fromList allNodes)) >>= \case
+                Left e -> error $ show e
+                Right (CreateTopicResponse (Right ())) -> printf "%s created on node %s\n" (show topic) (show node)
+
+    -- Spam the values
+    j1 <- async . forConcurrently_ topics $ \topic ->
+        forM_ [(1::Word64),6..firstBatch] $ \n -> do
+            let sampleValues = map (SimpleValue . printf "foo_%d") [n..n+5]
+            print sampleValues
+            exec <- choice executors
+            forM_ sampleValues $ E.proposeProper exec topic
+
+    -- From newNode's POV
+    j2 <- async . forConcurrently_ topics $ \topic -> do
+            Right _ <- createTopicBuilder http newNode (CreateTopicRequest topic (S.fromList allNodes))
+            pure ()
+
+    wait j1
+    wait j2
+
+    host <- choice allNodes
+
+    -- Pre-join catchup phase
+    j3 <- async . forConcurrently_ topics $ \topic -> do
+        Right (SequenceNumResponse (Just (SequenceNum sn))) <- sequenceNumBuilder http host (SequenceNumRequest topic)
+        let gatherRanges = chunksOf 20 [1..sn]
+        printf "pre-gathering %s\n" (show gatherRanges)
+        -- TODO check all were actually fetched
+        forM_ gatherRanges $ \gatherRange ->
+            readJournalBuilder http host (ReadJournalRequest topic (map SequenceNum gatherRange)) >>= \case
+                Left e -> error $ show e
+                Right (ReadJournalResponse responses) ->
+                    forM_ responses $ \(s',v') -> E.callback newExecutor E.Catchup topic s' v'
+
+    -- Spam the values
+    j4 <- async . forConcurrently_ topics $ \topic ->
+        forM_ [(1::Word64),6..secondBatch] $ \n -> do
+            let sampleValues = map (SimpleValue . printf "foo_%d") [n..n+5]
+            print sampleValues
+            exec <- choice executors
+            forM_ sampleValues $ E.proposeProper exec topic
+
+    wait j3
+    wait j4
+
+    -- Join and post-join catchup phase
+    j5 <- async . forConcurrently_ topics $ \topic -> do
+        joinBuilder http host (JoinPrepare topic newNode) >>= \case
+            Left l -> error $ show l
+            Right (JoinedAt (SequenceNum _end)) ->
+                sequenceNumBuilder http newNode (SequenceNumRequest topic) >>= \case
+                    Left l -> error $ show l
+                    Right (SequenceNumResponse (Just (SequenceNum start))) ->
+                        let loop sn = do
+                                readJournalBuilder http host (ReadJournalRequest topic [SequenceNum sn]) >>= \case
+                                    Left e -> error $ show e
+                                    Right (ReadJournalResponse responses) ->
+                                        forM_ responses $ \(s',v') -> do
+                                            mode <- E.callback newExecutor E.Catchup topic s' v'
+                                            when (mode == E.Catchup) (loop $ sn + 1)
+                        in loop (start + 1)
+
+    -- Spam the values
+    j6 <- async . forConcurrently_ topics $ \topic ->
+        forM_ [(1::Word64),6..thirdBatch] $ \n -> do
+            let sampleValues = map (SimpleValue . printf "foo_%d") [n..n+5]
+            print sampleValues
+            exec <- choice executors
+            forM_ sampleValues $ E.proposeProper exec topic
+
+    wait j5
+    wait j6
+
+    forConcurrently_ topics $ \topic -> do
+        printf "Checking %s\n" (show topic)
+        forM_ [1..numData] $ \n -> do
+            _ <- same =<< forConcurrently (newNode:allNodes) (\node -> do
+                              Right (ReadJournalResponse x) <- readJournalBuilder http node (ReadJournalRequest topic [SequenceNum n])
+                              pure x)
+            pure ()
+
+same :: (Eq a, Show a) => [a] -> IO a
+same     [] = error "No value"
+same (x:xs) | all (==x) xs = pure x
+            | otherwise    = error $ show (x:xs)
+
+choice :: [a] -> IO a
+choice xs = do
+    i <- randomRIO (0, length xs - 1)
+    pure $ xs !! i

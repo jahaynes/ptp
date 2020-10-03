@@ -1,15 +1,12 @@
 {-# LANGUAGE DeriveAnyClass,
              DeriveGeneric #-}
 
-module Node where
-
-import Entity.Id
-import Port
+module Entity.Port where
 
 import Codec.Serialise (Serialise)
 import Control.DeepSeq (NFData)
 import GHC.Generics    (Generic)
 
-data Node =
-    Node !Id !Port
+newtype Port =
+    Port Int
         deriving (Eq, Ord, Generic, Serialise, NFData, Show)
