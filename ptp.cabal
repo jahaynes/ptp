@@ -1,72 +1,111 @@
+cabal-version:       2.2
 name:                ptp
 version:             0.1.0.0
-license:             BSD3
 license-file:        LICENSE
 build-type:          Simple
 extra-source-files:  ChangeLog.md
-cabal-version:       >=1.10
+
+common deps
+  default-language: Haskell2010
+  build-depends:    async,
+                    base,
+                    binary,
+                    bytestring,
+                    containers,
+                    deepseq,
+                    directory,
+                    hashable,
+                    heaps,
+                    http-client,
+                    random,
+                    rio,
+                    safe,
+                    safe-exceptions,
+                    serialise,
+                    servant,
+                    servant-client,
+                    servant-server,
+                    split,
+                    stm,
+                    stm-containers,
+                    wai,
+                    uuid,
+                    warp
+
+library ptp-lib
+  import:              deps
+  ghc-options:         -Wall -O3
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  exposed-modules:     Entity.Id,
+                       Entity.SequenceNum,
+                       Entity.Topic
+  other-modules:       Client.WebNodeClient,
+                       Entity.Node,
+                       Entity.Port,
+                       Entity.Proposal,
+                       Entity.ProposalNumber,
+                       Entity.Value,
+                       Quorum,
+                       Requests.Accept,
+                       Requests.CreateTopic,
+                       Requests.Join,
+                       Requests.Learn,
+                       Requests.Ping,
+                       Requests.Prepare,
+                       Requests.Propose,
+                       Requests.ReadJournal,
+                       Requests.SequenceNum,
+                       Requests.Submit,
+                       Server.CallbackMap,
+                       Server.Files,
+                       Server.Locks,
+                       Server.NodeApi,
+                       Server.Paxos.Learner,
+                       Server.Paxos.Proposer
 
 executable ptp
+  import:              deps
   main-is:             Main.hs
   hs-source-dirs:      src
   other-modules:       Client.WebNodeClient,
-                       Entity.AcceptRequest,
-                       Entity.CatchupRequest,
-                       Entity.CatchupResponse,
-                       Entity.CreateTopicRequest,
-                       Entity.CreateTopicResponse,
                        Entity.Id,
-                       Entity.Key,
-                       Entity.LearnRequest,
-                       Entity.Nack,
-                       Entity.PeerRequest,
-                       Entity.PeerResponse,
-                       Entity.PrepareRequest,
-                       Entity.PrepareResponse,
-                       Entity.Promise,
+                       Entity.Node,
+                       Entity.Port,
                        Entity.Proposal,
                        Entity.ProposalNumber,
-                       Entity.ProposeRequest,
-                       Entity.ProposeResponse,
                        Entity.SequenceNum,
-                       Entity.SubmitRequest,
-                       Entity.SubmitResponse,
                        Entity.Topic,
                        Entity.Value,
-                       Entity.ValueResponse,
                        Journal,
-                       Node,
-                       Port,
                        Quorum,
-                       Runner,
+                       Requests.Accept,
+                       Requests.CreateTopic,
+                       Requests.Join,
+                       Requests.Learn,
+                       Requests.Ping,
+                       Requests.Prepare,
+                       Requests.Propose,
+                       Requests.ReadJournal,
+                       Requests.SequenceNum,
+                       Requests.Submit,
+                       Server.CallbackMap,
                        Server.Files,
                        Server.Locks,
                        Server.NodeApi,
                        Server.Paxos.Acceptor,
-                       Server.Paxos.AcceptorState,
+                       Server.Paxos.Executor,
                        Server.Paxos.Learner,
-                       Server.Paxos.LearnerState,
-                       Server.Paxos.Proposer,
-                       Server.Paxos.StateMachine
-  build-depends:       async,
-                       base,
-                       binary,
-                       bytestring,
-                       containers,
-                       deepseq,
-                       directory,
-                       http-client,
-                       random,
-                       rio,
-                       safe,
-                       safe-exceptions,
-                       serialise,
-                       servant,
-                       servant-client,
-                       servant-server,
-                       stm,
-                       wai,
-                       uuid,
-                       warp
+                       Server.Paxos.Proposer
+  build-depends:       ptp-lib
   default-language:    Haskell2010
   ghc-options:         -O3 -Wall -threaded
+
+--test-suite test-ptp
+--    import:           deps
+--    ghc-options:      -Wall -O3
+--    type:             exitcode-stdio-1.0
+--    main-is:          Tests.hs
+--    build-depends:    ptp-lib, random-shuffle
+--    hs-source-dirs:   test
+--    default-language: Haskell2010

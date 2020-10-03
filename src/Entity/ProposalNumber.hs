@@ -3,7 +3,7 @@
 
 module Entity.ProposalNumber where
 
-import Codec.Serialise
+import Codec.Serialise        (Serialise)
 import Control.DeepSeq        (NFData)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.UUID              (toString)
@@ -14,11 +14,11 @@ import GHC.Generics           (Generic)
 data ProposalNumber = ProposalNumber
                     { getRoundNo :: !Word64
                     , getUniq    :: !Uniq
-                    } deriving (Generic, Serialise, Eq, Ord, NFData, Show)
+                    } deriving (Generic, Serialise, Eq, Ord, NFData)
 
 newtype Uniq =
     Uniq String
-        deriving (Generic, Serialise, Eq, Ord, NFData, Show)
+        deriving (Generic, Serialise, Eq, Ord, NFData)
 
 newProposalNumber :: MonadIO m => m ProposalNumber
 newProposalNumber = ProposalNumber 1 <$> randomUniq

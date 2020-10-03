@@ -14,3 +14,6 @@ newtype SequenceNum =
 
 next :: SequenceNum -> SequenceNum
 next (SequenceNum n) = SequenceNum $! n + 1
+
+prev :: SequenceNum -> SequenceNum
+prev (SequenceNum n) = SequenceNum $! n - 1

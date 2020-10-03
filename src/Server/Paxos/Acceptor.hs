@@ -1,59 +1,60 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveAnyClass,
+             DeriveGeneric,
+             LambdaCase      #-}
 
 module Server.Paxos.Acceptor ( Acceptor (..)
                              , create
                              ) where
 
 import Client.WebNodeClient       (LearnClient)
-import Entity.AcceptRequest
 import Entity.Id
-import Entity.Key
-import Entity.LearnRequest
-import Entity.Nack
-import Entity.PrepareRequest
-import Entity.PrepareResponse
-import Entity.Promise
+import Entity.Node
 import Entity.Proposal
+import Entity.ProposalNumber
 import Entity.SequenceNum
 import Entity.Topic
-import Entity.ValueResponse
-import Node
+import Requests.Accept
+import Requests.Prepare
+import Requests.Learn
 import Server.Files
 import Server.Locks
-import Server.Paxos.AcceptorState
 
+import           Codec.Serialise
 import           Control.Concurrent.Async (forConcurrently)
+import           Control.DeepSeq          (NFData)
 import           Control.Monad.IO.Class   (MonadIO, liftIO)
+import           GHC.Generics             (Generic)
 import           Data.Either              (rights)
+import           Data.Functor             ((<&>))
 import           Data.Maybe               (catMaybes, fromJust)
 import qualified Data.Set as S
-import           Network.HTTP.Client
 
 data Acceptor m =
     Acceptor { prepare :: !(PrepareRequest -> m PrepareResponse)
-             , accept  :: !(AcceptRequest  -> m ValueResponseE)
+             , accept  :: !(AcceptRequest  -> m AcceptResponse)
              }
+
+data AcceptorState =
+    AcceptorState { acc_notLessThan :: !(Maybe ProposalNumber)
+                  , acc_proposal    :: !(Maybe Proposal)
+                  } deriving (Generic, NFData, Serialise)
 
 create :: (Show e, MonadIO m) => Id
                               -> Locks (Topic, SequenceNum)
-                              -> (Manager -> Node -> LearnClient e)
+                              -> (Node -> LearnClient e)
                               -> IO (Acceptor m)
-create myId topicLocks learnBuilder = do
-
-    -- TODO maybe share these HTTP clients
-    http <- newManager $ defaultManagerSettings
-                { managerResponseTimeout = responseTimeoutMicro 10000000 }
+create myId topicLocks learnBuilder =
 
     pure $ Acceptor { prepare = liftIO . prepareService topicLocks getAcceptorSubState putAcceptorSubState
-                    , accept  = liftIO . acceptService myId (learnBuilder http) topicLocks getAcceptorSubState putAcceptorSubState
+                    , accept  = liftIO . acceptService myId learnBuilder topicLocks getAcceptorSubState putAcceptorSubState
                     }
 
     where
     getAcceptorSubState :: Locked (Topic, SequenceNum) -> IO AcceptorState
     getAcceptorSubState lock@(Locked (_, seqNum)) =
-        readSubState myId lock seqNum "as" >>= \case
-            Just f  -> pure f
-            Nothing -> pure $ AcceptorState Nothing Nothing
+        readSubState myId lock seqNum "as" <&> \case
+            Just f  -> f
+            Nothing -> AcceptorState Nothing Nothing
 
     putAcceptorSubState :: Locked (Topic, SequenceNum) -> AcceptorState -> IO ()
     putAcceptorSubState lock@(Locked (_, seqNum)) acceptorState =
@@ -64,7 +65,7 @@ prepareService :: Locks (Topic, SequenceNum)
                -> (Locked (Topic, SequenceNum) -> AcceptorState -> IO ())
                -> PrepareRequest
                -> IO PrepareResponse
-prepareService topicLocks getAcceptorSubState putAcceptorSubState (PrepareRequest (Key topic seqNum) n) =
+prepareService topicLocks getAcceptorSubState putAcceptorSubState (PrepareRequest topic seqNum n) =
     -- TODO try limited the scope of this lock
     -- This scope appears to just be a single topic/seqnum.as
     withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
@@ -81,16 +82,15 @@ acceptService :: Show e => Id
               -> (Locked (Topic, SequenceNum) -> IO AcceptorState)
               -> (Locked (Topic, SequenceNum) -> AcceptorState -> IO ())
               -> AcceptRequest
-              -> IO ValueResponseE
-acceptService myId learnBuilder topicLocks getAcceptorSubState putAcceptorSubState (AcceptRequest nodes key@(Key topic seqNum) n v) = do
-    -- TODO try limiting the scope of this lock
-    -- This scope appears to just be a single topic/seqnum.as
+              -> IO AcceptResponse
+acceptService myId learnBuilder topicLocks getAcceptorSubState putAcceptorSubState (AcceptRequest nodes topic seqNum n v) = do
+
     accepted <- withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
         state <- getAcceptorSubState lockedTopic
         if Just n >= acc_notLessThan state
             then do
                 putAcceptorSubState lockedTopic $ state { acc_notLessThan = Just n
-                                                     , acc_proposal    = Just (Proposal n v) }
+                                                        , acc_proposal    = Just (Proposal n v) }
                 pure True
             else pure False
 
@@ -100,11 +100,11 @@ acceptService myId learnBuilder topicLocks getAcceptorSubState putAcceptorSubSta
 
             -- Inform every (responsive) learner
             learnerResponses <- rights
-                              . map (fmap (\(ValueResponseM r) -> r))
-                            <$> forConcurrently (map learnBuilder $ S.toList nodes) (\c -> c (LearnRequest nodes key myId v))
+                              . map (fmap (\(LearnResponse mv) -> mv))
+                            <$> forConcurrently (map learnBuilder $ S.toList nodes) (\c -> c (LearnRequest nodes topic seqNum myId v))
 
             -- Consider every consensus claimed by a learner
-            pure . ValueResponseE $
+            pure . AcceptResponse $
                 case catMaybes learnerResponses of
 
                     []     -> Left "No consensus (yet)"
@@ -114,4 +114,4 @@ acceptService myId learnBuilder topicLocks getAcceptorSubState putAcceptorSubSta
 
                            | otherwise -> Left "Fatal: Inconsistent consensus"
 
-        else pure . ValueResponseE $ Left "acceptService: Not accepted"
+        else pure . AcceptResponse $ Left "acceptService: Not accepted"

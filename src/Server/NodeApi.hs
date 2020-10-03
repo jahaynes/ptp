@@ -3,36 +3,36 @@
 
 module Server.NodeApi where
 
-import Entity.AcceptRequest
-import Entity.CatchupRequest
-import Entity.CatchupResponse
-import Entity.CreateTopicRequest
-import Entity.CreateTopicResponse
-import Entity.LearnRequest
-import Entity.PeerRequest
-import Entity.PeerResponse
-import Entity.PrepareRequest
-import Entity.PrepareResponse
-import Entity.ProposeRequest
-import Entity.ProposeResponse
-import Entity.SubmitRequest
-import Entity.SubmitResponse
-import Entity.ValueResponse
-
+import Requests.Accept
+import Requests.CreateTopic
+import Requests.Join
+import Requests.Learn
+import Requests.Ping
+import Requests.Prepare
+import Requests.Propose
+import Requests.ReadJournal
+import Requests.SequenceNum
+import Requests.Submit
 import Servant.API
 
-type NodeApi = "proposer" :> "propose"     :> ReqBody '[OctetStream] ProposeRequest     :> Post '[OctetStream] ProposeResponse
+-- TODO internal/external API
+
+type NodeApi = "executor" :> "join"        :> ReqBody '[OctetStream] JoinRequest        :> Post '[OctetStream] JoinResponse
+
+          :<|> "executor" :> "ping"        :> ReqBody '[OctetStream] Ping               :> Post '[OctetStream] Pong
+
+          :<|> "executor" :> "createTopic" :> ReqBody '[OctetStream] CreateTopicRequest :> Post '[OctetStream] CreateTopicResponse
+
+          :<|> "executor" :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse
+
+          :<|> "executor" :> "readJournal" :> ReqBody '[OctetStream] ReadJournalRequest :> Post '[OctetStream] ReadJournalResponse
+
+          :<|> "executor" :> "sequenceNum" :> ReqBody '[OctetStream] SequenceNumRequest :> Post '[OctetStream] SequenceNumResponse
+
+          :<|> "proposer" :> "propose"     :> ReqBody '[OctetStream] ProposeRequest     :> Post '[OctetStream] ProposeResponse
 
           :<|> "acceptor" :> "prepare"     :> ReqBody '[OctetStream] PrepareRequest     :> Post '[OctetStream] PrepareResponse
 
-          :<|> "acceptor" :> "accept"      :> ReqBody '[OctetStream] AcceptRequest      :> Post '[OctetStream] ValueResponseE
+          :<|> "acceptor" :> "accept"      :> ReqBody '[OctetStream] AcceptRequest      :> Post '[OctetStream] AcceptResponse
 
-          :<|> "learner"  :> "learn"       :> ReqBody '[OctetStream] LearnRequest       :> Post '[OctetStream] ValueResponseM
-
-          :<|> "machine"  :> "catchup"     :> ReqBody '[OctetStream] CatchupRequest     :> Post '[OctetStream] CatchupResponse
-
-          :<|> "machine"  :> "createTopic" :> ReqBody '[OctetStream] CreateTopicRequest :> Post '[OctetStream] CreateTopicResponse
-
-          :<|> "machine"  :> "peerRequest" :> ReqBody '[OctetStream] PeerRequest        :> Post '[OctetStream] PeerResponse
-
-          :<|> "machine"  :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse
+          :<|> "learner"  :> "learn"       :> ReqBody '[OctetStream] LearnRequest       :> Post '[OctetStream] LearnResponse
