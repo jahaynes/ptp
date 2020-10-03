@@ -2,7 +2,7 @@
              DeriveGeneric,
              MultiParamTypeClasses #-}
 
-module Requests.Submit where
+module Requests.SubmitNode where
 
 import Entity.Node  (Node)
 import Entity.Topic (Topic)
@@ -12,23 +12,23 @@ import Codec.Serialise (Serialise, serialise, deserialise)
 import GHC.Generics    (Generic)
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-data SubmitRequest =
-    SubmitRequest !Topic !Uniq !Val
+data SubmitNodeRequest =
+    SubmitNodeRequest !Topic !Uniq !Val
         deriving (Generic, Serialise)
 
-instance MimeRender OctetStream SubmitRequest where
+instance MimeRender OctetStream SubmitNodeRequest where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream SubmitRequest where
+instance MimeUnrender OctetStream SubmitNodeRequest where
     mimeUnrender _ = Right . deserialise
 
-data SubmitResponse = SubmitDone
-                    | SubmitRetry
-                    | SubmitElsewhere !Node
-                        deriving (Generic, Serialise)
+data SubmitNodeResponse = SubmitDone
+                        | SubmitRetry
+                        | SubmitElsewhere !Node
+                            deriving (Generic, Serialise)
 
-instance MimeRender OctetStream SubmitResponse where
+instance MimeRender OctetStream SubmitNodeResponse where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream SubmitResponse where
+instance MimeUnrender OctetStream SubmitNodeResponse where
     mimeUnrender _ = Right . deserialise

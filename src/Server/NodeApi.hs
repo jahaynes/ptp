@@ -12,27 +12,30 @@ import Requests.Prepare
 import Requests.Propose
 import Requests.ReadJournal
 import Requests.SequenceNum
-import Requests.Submit
+import Requests.SubmitCluster
+import Requests.SubmitNode
 import Servant.API
 
 -- TODO internal/external API
 
-type NodeApi = "executor" :> "join"        :> ReqBody '[OctetStream] JoinRequest        :> Post '[OctetStream] JoinResponse
+type NodeApi = "executor" :> "join"          :> ReqBody '[OctetStream] JoinRequest          :> Post '[OctetStream] JoinResponse
 
-          :<|> "executor" :> "ping"        :> ReqBody '[OctetStream] Ping               :> Post '[OctetStream] Pong
+          :<|> "executor" :> "ping"          :> ReqBody '[OctetStream] Ping                 :> Post '[OctetStream] Pong
 
-          :<|> "executor" :> "createTopic" :> ReqBody '[OctetStream] CreateTopicRequest :> Post '[OctetStream] CreateTopicResponse
+          :<|> "executor" :> "createTopic"   :> ReqBody '[OctetStream] CreateTopicRequest   :> Post '[OctetStream] CreateTopicResponse
 
-          :<|> "executor" :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse
+          :<|> "executor" :> "submitCluster" :> ReqBody '[OctetStream] SubmitClusterRequest :> Post '[OctetStream] SubmitClusterResponse
 
-          :<|> "executor" :> "readJournal" :> ReqBody '[OctetStream] ReadJournalRequest :> Post '[OctetStream] ReadJournalResponse
+          :<|> "executor" :> "submitNode"    :> ReqBody '[OctetStream] SubmitNodeRequest    :> Post '[OctetStream] SubmitNodeResponse
 
-          :<|> "executor" :> "sequenceNum" :> ReqBody '[OctetStream] SequenceNumRequest :> Post '[OctetStream] SequenceNumResponse
+          :<|> "executor" :> "readJournal"   :> ReqBody '[OctetStream] ReadJournalRequest   :> Post '[OctetStream] ReadJournalResponse
 
-          :<|> "proposer" :> "propose"     :> ReqBody '[OctetStream] ProposeRequest     :> Post '[OctetStream] ProposeResponse
+          :<|> "executor" :> "sequenceNum"   :> ReqBody '[OctetStream] SequenceNumRequest   :> Post '[OctetStream] SequenceNumResponse
 
-          :<|> "acceptor" :> "prepare"     :> ReqBody '[OctetStream] PrepareRequest     :> Post '[OctetStream] PrepareResponse
+          :<|> "proposer" :> "propose"       :> ReqBody '[OctetStream] ProposeRequest       :> Post '[OctetStream] ProposeResponse
 
-          :<|> "acceptor" :> "accept"      :> ReqBody '[OctetStream] AcceptRequest      :> Post '[OctetStream] AcceptResponse
+          :<|> "acceptor" :> "prepare"       :> ReqBody '[OctetStream] PrepareRequest       :> Post '[OctetStream] PrepareResponse
 
-          :<|> "learner"  :> "learn"       :> ReqBody '[OctetStream] LearnRequest       :> Post '[OctetStream] LearnResponse
+          :<|> "acceptor" :> "accept"        :> ReqBody '[OctetStream] AcceptRequest        :> Post '[OctetStream] AcceptResponse
+
+          :<|> "learner"  :> "learn"         :> ReqBody '[OctetStream] LearnRequest         :> Post '[OctetStream] LearnResponse

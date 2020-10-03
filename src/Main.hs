@@ -12,6 +12,7 @@ import           Requests.CreateTopic
 import           Requests.Join
 import           Requests.ReadJournal
 import           Requests.SequenceNum
+import           Requests.SubmitCluster
 import qualified Server.CallbackMap        as C (CallbackMap (..), create)
 import           Server.Locks                   (newLocks)
 import           Server.NodeApi                 (NodeApi)
@@ -70,7 +71,8 @@ runExecutor http callbackMap node@(Node ident (Port port)) = do
         serve (Proxy :: Proxy NodeApi) $ E.join executor
                                     :<|> E.ping executor
                                     :<|> E.createTopic executor
-                                    :<|> E.submit executor
+                                    :<|> E.submitCluster executor
+                                    :<|> E.submitNode executor
                                     :<|> E.readJournal executor
                                     :<|> E.getSequenceNum executor
                                     :<|> P.propose proposer
@@ -91,7 +93,7 @@ main = do
                 { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
     callbackMap <- C.create
-    executors   <- mapConcurrently (runExecutor http callbackMap) allNodes
+    _   <- mapConcurrently (runExecutor http callbackMap) allNodes
 
     newExecutor <- runExecutor http callbackMap newNode
 
@@ -114,8 +116,8 @@ main = do
         forM_ [(1::Word64),6..firstBatch] $ \n -> do
             let sampleValues = map (SimpleValue . printf "foo_%d") [n..n+5]
             print sampleValues
-            exec <- choice executors
-            forM_ sampleValues $ E.proposeProper exec topic
+            node <- choice allNodes
+            forM_ sampleValues $ \v -> submitClusterBuilder http node (SubmitClusterRequest topic v)
 
     -- From newNode's POV
     j2 <- async . forConcurrently_ topics $ \topic -> do
@@ -144,8 +146,8 @@ main = do
         forM_ [(1::Word64),6..secondBatch] $ \n -> do
             let sampleValues = map (SimpleValue . printf "foo_%d") [n..n+5]
             print sampleValues
-            exec <- choice executors
-            forM_ sampleValues $ E.proposeProper exec topic
+            node <- choice allNodes
+            forM_ sampleValues $ \v -> submitClusterBuilder http node (SubmitClusterRequest topic v)
 
     wait j3
     wait j4
@@ -172,8 +174,8 @@ main = do
         forM_ [(1::Word64),6..thirdBatch] $ \n -> do
             let sampleValues = map (SimpleValue . printf "foo_%d") [n..n+5]
             print sampleValues
-            exec <- choice executors
-            forM_ sampleValues $ E.proposeProper exec topic
+            node <- choice allNodes
+            forM_ sampleValues $ \v -> submitClusterBuilder http node (SubmitClusterRequest topic v)
 
     wait j5
     wait j6

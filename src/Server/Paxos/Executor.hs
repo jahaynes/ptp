@@ -2,7 +2,7 @@
 
 module Server.Paxos.Executor where
 
-import Client.WebNodeClient       (PingClient, pingBuilder, submitBuilder)
+import Client.WebNodeClient       (PingClient, pingBuilder, submitNodeBuilder)
 import Entity.Node
 import Entity.SequenceNum
 import Entity.Topic
@@ -14,7 +14,8 @@ import Requests.Ping
 import Requests.Propose
 import Requests.ReadJournal
 import Requests.SequenceNum
-import Requests.Submit
+import Requests.SubmitCluster
+import Requests.SubmitNode
 import Server.CallbackMap         (CallbackMap (..), Notify (..))
 import Server.Locks
 import Server.Paxos.Proposer      (Proposer (..))
@@ -37,8 +38,8 @@ data Executor m =
     Executor { join           :: !(JoinRequest -> m JoinResponse)
              , ping           :: !(Ping -> m Pong)
              , createTopic    :: !(CreateTopicRequest -> m CreateTopicResponse)
-             , proposeProper  :: !(Topic -> Val -> IO (Either ClientError SequenceNum))
-             , submit         :: !(SubmitRequest -> m SubmitResponse)
+             , submitCluster  :: !(SubmitClusterRequest -> m SubmitClusterResponse)
+             , submitNode     :: !(SubmitNodeRequest -> m SubmitNodeResponse)
              , callback       :: !(Mode -> Topic -> SequenceNum -> Value -> IO Mode)
              , readJournal    :: !(ReadJournalRequest -> m ReadJournalResponse)
              , getSequenceNum :: !(SequenceNumRequest -> m SequenceNumResponse)
@@ -70,13 +71,13 @@ create self http journal proposer callbackMap = do
 
     let pingBuilder' = pingBuilder http
 
-    let proper = proposeProperImpl http self tvTopicState callbackMap
+    let sc = submitClusterImpl http self tvTopicState callbackMap
 
-    pure $ Executor { join           = liftIO . joinImpl tvTopicState pingBuilder' proper
+    pure $ Executor { join           = liftIO . joinImpl tvTopicState pingBuilder' sc
                     , ping           = liftIO . pingImpl pingBuilder'
                     , createTopic    = liftIO . atomically . createTopicImpl tvTopicState
-                    , proposeProper  = proper
-                    , submit         = liftIO . submitImpl self proposer tvTopicState
+                    , submitCluster  = liftIO . sc
+                    , submitNode     = liftIO . submitNodeImpl self proposer tvTopicState
                     , callback       = callbackImpl self callbackMap tvTopicState topicLocks journal
                     , readJournal    = liftIO . readJournalImpl topicLocks journal
                     , getSequenceNum = liftIO . getSequenceNumImpl tvTopicState
@@ -104,28 +105,28 @@ createTopicImpl tvTopicState (CreateTopicRequest topic nodes) = do
 
             CreateTopicResponse <$> right ()
 
-proposeProperImpl :: Manager
+submitClusterImpl :: Manager
                   -> Node
                   -> TVar (Map Topic ExecutorState)
                   -> CallbackMap
-                  -> Topic
-                  -> Val
-                  -> IO (Either ClientError SequenceNum)
-proposeProperImpl http self tvTopicState callbackMap topic value = do
+                  -> SubmitClusterRequest
+                  -> IO SubmitClusterResponse
+submitClusterImpl http self tvTopicState callbackMap (SubmitClusterRequest topic value) = do
 
     node <- atomically (getDetails self tvTopicState topic) <&>
                 fromMaybe self . getLeader
 
     go =<< pure node
     where
-    go :: Node -> IO (Either ClientError SequenceNum)
+    go :: Node -> IO SubmitClusterResponse
     go node = do
 
         u <- uniq
-        submitBuilder http node (SubmitRequest topic u value) >>= \case
+
+        submitNodeBuilder http node (SubmitNodeRequest topic u value) >>= \case
 
             Left err ->
-                left err
+                pure . SubmitClusterResponse . Left $ printf "Could not submit to node %s: %s" (show node) (show err)
 
             Right SubmitRetry ->
                 go node
@@ -135,15 +136,15 @@ proposeProperImpl http self tvTopicState callbackMap topic value = do
 
             Right SubmitDone ->
                 waitCallback callbackMap u >>= \case
-                    NotifyDone seqNum -> right seqNum
+                    NotifyDone seqNum -> pure . SubmitClusterResponse $ Right seqNum
                     NotifyRetry       -> go node
 
-submitImpl :: Node
-           -> Proposer Handler
-           -> TVar (Map Topic ExecutorState)
-           -> SubmitRequest
-           -> IO SubmitResponse
-submitImpl self proposer tvTopicState (SubmitRequest topic u val) = do
+submitNodeImpl :: Node
+               -> Proposer Handler
+               -> TVar (Map Topic ExecutorState)
+               -> SubmitNodeRequest
+               -> IO SubmitNodeResponse
+submitNodeImpl self proposer tvTopicState (SubmitNodeRequest topic u val) = do
 
     ExecutorState cluster mLeader _ _ _ <- atomically $ getDetails self tvTopicState topic
 
@@ -168,7 +169,7 @@ submitImpl self proposer tvTopicState (SubmitRequest topic u val) = do
     sendProposal :: Set Node
                  -> Maybe Node
                  -> Val
-                 -> IO SubmitResponse
+                 -> IO SubmitNodeResponse
     sendProposal cluster mLeader val' = do
         seqNum <- atomically bumpSendSeqNum
         let ch       = clusterHash mLeader cluster
@@ -337,10 +338,10 @@ pingImpl pingBuilder' ping =
 
 joinImpl :: TVar (Map Topic ExecutorState)
          -> (Node -> PingClient e)
-         -> (Topic -> Val -> IO (Either ClientError SequenceNum))
+         -> (SubmitClusterRequest -> IO SubmitClusterResponse)
          -> JoinRequest
          -> IO JoinResponse
-joinImpl tvTopicState pingBuilder' proper (JoinPrepare topic joiner) = do
+joinImpl tvTopicState pingBuilder' submitCluster (JoinPrepare topic joiner) = do
     topicState <- readTVarIO tvTopicState
     case M.lookup topic topicState of
         Nothing -> pure JoinNoSuchTopic
@@ -358,7 +359,7 @@ joinImpl tvTopicState pingBuilder' proper (JoinPrepare topic joiner) = do
                         then pure JoinerNotResponsive
                         else do
                             printf "Cluster can reach joiner\n"
-                            Right seqNum <- proper topic (CommandValue (AddNode joiner))
+                            SubmitClusterResponse (Right seqNum) <- submitCluster (SubmitClusterRequest topic (CommandValue (AddNode joiner)))
                             pure $ JoinedAt seqNum
 
 -- TODO should this redirect and ask for leader's executorstate instead?
