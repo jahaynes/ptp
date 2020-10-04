@@ -2,31 +2,31 @@
              DeriveGeneric,
              MultiParamTypeClasses #-}
 
-module Requests.Catchup where
+module Requests.JoinCluster where
 
-import Entity.Node  (Node)
-import Entity.Topic (Topic)
+import Entity.Node        (Node)
+import Entity.Topic       (Topic)
 
 import Codec.Serialise (Serialise, serialise, deserialise)
 import GHC.Generics    (Generic)
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-data CatchupRequest =
-    CatchupRequest !Node !Topic
+data JoinClusterRequest =
+    JoinClusterRequest !Node !Topic
         deriving (Generic, Serialise)
 
-instance MimeRender OctetStream CatchupRequest where
+instance MimeRender OctetStream JoinClusterRequest where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream CatchupRequest where
+instance MimeUnrender OctetStream JoinClusterRequest where
     mimeUnrender _ = Right . deserialise
 
-data CatchupResponse =
-    CatchupResponse
+data JoinClusterResponse =
+    JoinClusterResponse
         deriving (Generic, Serialise)
 
-instance MimeRender OctetStream CatchupResponse where
+instance MimeRender OctetStream JoinClusterResponse where
     mimeRender _ = serialise
 
-instance MimeUnrender OctetStream CatchupResponse where
+instance MimeUnrender OctetStream JoinClusterResponse where
     mimeUnrender _ = Right . deserialise

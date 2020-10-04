@@ -17,7 +17,6 @@ import Requests.Prepare
 import Requests.Propose
 
 import           Control.Concurrent.Async (mapConcurrently)
-import           Control.Monad.IO.Class   (MonadIO, liftIO)
 import           Data.Either              (rights)
 import           Data.List                (maximumBy)
 import           Data.Maybe               (fromMaybe, mapMaybe)
@@ -27,22 +26,22 @@ import qualified Data.Set as S
 import           Data.Word                (Word64)
 import           Safe                     (headMay)
 
-newtype Proposer m =
-    Proposer { propose :: ProposeRequest -> m ProposeResponse
+newtype Proposer =
+    Proposer { propose :: ProposeRequest -> IO ProposeResponse
              }
 
-create :: (MonadIO m, Show e) => (Node -> PrepareClient e)
-                              -> (Node -> AcceptClient e)
-                              -> IO (Proposer m)
+create :: Show e => (Node -> PrepareClient e)
+                 -> (Node -> AcceptClient e)
+                 -> IO Proposer
 create prepareBuilder acceptBuilder =
-    pure $ Proposer { propose = liftIO . proposeService prepareBuilder acceptBuilder
+    pure $ Proposer { propose = proposeImpl prepareBuilder acceptBuilder
                     }
 
-proposeService :: Show e => (Node -> PrepareClient e)
-                         -> (Node -> AcceptClient e)
-                         -> ProposeRequest
-                         -> IO ProposeResponse
-proposeService prepareBuilder acceptBuilder (ProposeRequest nodes topic seqNum value) = do
+proposeImpl :: Show e => (Node -> PrepareClient e)
+                      -> (Node -> AcceptClient e)
+                      -> ProposeRequest
+                      -> IO ProposeResponse
+proposeImpl prepareBuilder acceptBuilder (ProposeRequest nodes topic seqNum value) = do
 
     initialProposalNum <- newProposalNumber
     doProposal initialProposalNum value

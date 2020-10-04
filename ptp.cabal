@@ -51,6 +51,7 @@ library ptp-lib
                        Requests.Catchup,
                        Requests.CreateTopic,
                        Requests.Join,
+                       Requests.JoinCluster,
                        Requests.Learn,
                        Requests.Ping,
                        Requests.Prepare,
@@ -85,6 +86,7 @@ executable ptp
                        Requests.Catchup
                        Requests.CreateTopic,
                        Requests.Join,
+                       Requests.JoinCluster,
                        Requests.Learn,
                        Requests.Ping,
                        Requests.Prepare,

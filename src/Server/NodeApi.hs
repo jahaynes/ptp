@@ -7,10 +7,10 @@ import Requests.Accept
 import Requests.Catchup
 import Requests.CreateTopic
 import Requests.Join
+import Requests.JoinCluster
 import Requests.Learn
 import Requests.Ping
 import Requests.Prepare
-import Requests.Propose
 import Requests.ReadJournal
 import Requests.SequenceNum
 import Requests.SubmitCluster
@@ -20,6 +20,8 @@ import Servant.API
 -- TODO internal/external API
 
 type NodeApi = "executor" :> "join"          :> ReqBody '[OctetStream] JoinRequest          :> Post '[OctetStream] JoinResponse
+
+          :<|> "executor" :> "joinCluster"   :> ReqBody '[OctetStream] JoinClusterRequest   :> Post '[OctetStream] JoinClusterResponse
 
           :<|> "executor" :> "ping"          :> ReqBody '[OctetStream] Ping                 :> Post '[OctetStream] Pong
 
@@ -34,8 +36,6 @@ type NodeApi = "executor" :> "join"          :> ReqBody '[OctetStream] JoinReque
           :<|> "executor" :> "readJournal"   :> ReqBody '[OctetStream] ReadJournalRequest   :> Post '[OctetStream] ReadJournalResponse
 
           :<|> "executor" :> "sequenceNum"   :> ReqBody '[OctetStream] SequenceNumRequest   :> Post '[OctetStream] SequenceNumResponse
-
-          :<|> "proposer" :> "propose"       :> ReqBody '[OctetStream] ProposeRequest       :> Post '[OctetStream] ProposeResponse
 
           :<|> "acceptor" :> "prepare"       :> ReqBody '[OctetStream] PrepareRequest       :> Post '[OctetStream] PrepareResponse
 

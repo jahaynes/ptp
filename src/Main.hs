@@ -10,9 +10,8 @@ import           Entity.Value
 import           Journal                   as J (create)
 import           Requests.Catchup
 import           Requests.CreateTopic
-import           Requests.Join
+import           Requests.JoinCluster
 import           Requests.ReadJournal
-import           Requests.SequenceNum
 import           Requests.SubmitCluster
 import qualified Server.CallbackMap        as C (CallbackMap (..), create)
 import           Server.Locks                   (newLocks)
@@ -20,18 +19,17 @@ import           Server.NodeApi                 (NodeApi)
 import qualified Server.Paxos.Acceptor     as A (Acceptor (..), create)
 import qualified Server.Paxos.Executor     as E
 import qualified Server.Paxos.Learner      as L (Learner (..), create)
-import qualified Server.Paxos.Proposer     as P (Proposer (..), create)
+import qualified Server.Paxos.Proposer     as P (create)
 
 import           Control.Concurrent         (newEmptyMVar, putMVar, takeMVar)
-import           Control.Concurrent.Async   (async, forConcurrently, forConcurrently_, mapConcurrently, wait)
-import           Control.Monad              (forM_, when)
+import           Control.Concurrent.Async   (async, forConcurrently, forConcurrently_, mapConcurrently_, wait)
+import           Control.Monad              (forM_)
 import           Data.Proxy                 (Proxy (Proxy))
 import qualified Data.Set as S
 import           Data.Word                  (Word64)
 import           Network.HTTP.Client hiding (Proxy, host, port)
 import           Network.Wai.Handler.Warp   (runSettings, setBeforeMainLoop, setPort, defaultSettings)
-import           Servant                    (Handler, serve)
---import           Servant.Client             (ClientError)
+import           Servant                    (serve)
 import           Servant.API
 import           System.Random
 import           Text.Printf                (printf)
@@ -46,7 +44,7 @@ createIds n = do
 runExecutor :: Manager
             -> C.CallbackMap
             -> Node
-            -> IO (E.Executor Handler)
+            -> IO ()
 runExecutor http callbackMap node@(Node ident (Port port)) = do
 
     proposer      <- P.create (prepareBuilder http) (acceptBuilder http)
@@ -69,6 +67,7 @@ runExecutor http callbackMap node@(Node ident (Port port)) = do
 
     _ <- async . runSettings settings $
         serve (Proxy :: Proxy NodeApi) $ E.join executor
+                                    :<|> E.joinCluster executor
                                     :<|> E.ping executor
                                     :<|> E.catchup executor
                                     :<|> E.createTopic executor
@@ -76,14 +75,11 @@ runExecutor http callbackMap node@(Node ident (Port port)) = do
                                     :<|> E.submitNode executor
                                     :<|> E.readJournal executor
                                     :<|> E.getSequenceNum executor
-                                    :<|> P.propose proposer
                                     :<|> A.prepare acceptor
                                     :<|> A.accept acceptor
                                     :<|> L.learn learner
 
     takeMVar serverReady
-
-    pure executor
 
 main :: IO ()
 main = do
@@ -94,9 +90,9 @@ main = do
                 { managerResponseTimeout = responseTimeoutMicro 10000000 }
 
     callbackMap <- C.create
-    _   <- mapConcurrently (runExecutor http callbackMap) allNodes
+    mapConcurrently_ (runExecutor http callbackMap) allNodes
 
-    newExecutor <- runExecutor http callbackMap newNode
+    runExecutor http callbackMap newNode
 
     -- Create sample data
     let topics      = map (\n -> Topic ("topic_" ++ show n)) [(1::Int)..3]
@@ -120,7 +116,7 @@ main = do
             node <- choice allNodes
             forM_ sampleValues $ \v -> submitClusterBuilder http node (SubmitClusterRequest topic v)
 
-    -- From newNode's POV
+    -- Tell newNode to create topics
     j2 <- async . forConcurrently_ topics $ \topic -> do
             Right _ <- createTopicBuilder http newNode (CreateTopicRequest topic (S.fromList allNodes))
             pure ()
@@ -147,30 +143,7 @@ main = do
 
     -- Join and post-join catchup phase
     j5 <- async . forConcurrently_ topics $ \topic ->
-
-        -- Tell host to Propose that newNode is now part of the cluster
-        joinBuilder http host (JoinPrepare topic newNode) >>= \case
-            Left l -> error $ show l
-            Right (JoinedAt (SequenceNum _end)) ->
-
-                -- Ask new node what sequence number it's up to
-                -- TODO - shouldn't need to http becaues asking self
-                sequenceNumBuilder http newNode (SequenceNumRequest topic) >>= \case
-                    Left l -> error $ show l
-                    Right (SequenceNumResponse (Just (SequenceNum start))) ->
-                        -- TODO: optimise for more than one-at-a-time
-                        let loop sn =
-
-                                -- Ask host for the next value
-                                readJournalBuilder http host (ReadJournalRequest topic [SequenceNum sn]) >>= \case
-                                    Left e -> error $ show e
-                                    Right (ReadJournalResponse responses) ->
-                                        forM_ responses $ \(s',v') -> do
-
-                                            -- Journal the asked value
-                                            mode <- E.callback newExecutor E.Catchup topic s' v'
-                                            when (mode == E.Catchup) (loop $ sn + 1)
-                        in loop (start + 1)
+        joinClusterBuilder http newNode (JoinClusterRequest host topic)
 
     -- Spam the values
     j6 <- async . forConcurrently_ topics $ \topic ->

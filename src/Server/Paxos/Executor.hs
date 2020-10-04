@@ -2,7 +2,7 @@
 
 module Server.Paxos.Executor where
 
-import Client.WebNodeClient       (PingClient, pingBuilder, readJournalBuilder, sequenceNumBuilder, submitNodeBuilder)
+import Client.WebNodeClient
 import Entity.Node
 import Entity.SequenceNum
 import Entity.Topic
@@ -11,6 +11,7 @@ import Journal                    (Journal (..))
 import Requests.Catchup
 import Requests.CreateTopic
 import Requests.Join
+import Requests.JoinCluster
 import Requests.Ping
 import Requests.Propose
 import Requests.ReadJournal
@@ -22,7 +23,7 @@ import Server.Locks
 import Server.Paxos.Proposer      (Proposer (..))
 
 import           Control.Concurrent.STM
-import           Control.Monad          (forM_)
+import           Control.Monad          (forM_, when)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Data.Either            (rights)
 import           Data.Functor           ((<&>))
@@ -33,11 +34,11 @@ import           Data.Map               (Map)
 import qualified Data.Map as M
 import           Data.Maybe             (fromMaybe)
 import           Network.HTTP.Client    (Manager)
-import           Servant                (Handler, runHandler)
 import           Text.Printf            (printf)
 
 data Executor m =
     Executor { join           :: !(JoinRequest -> m JoinResponse)
+             , joinCluster    :: !(JoinClusterRequest -> m JoinClusterResponse)
              , catchup        :: !(CatchupRequest -> m CatchupResponse)
              , ping           :: !(Ping -> m Pong)
              , createTopic    :: !(CreateTopicRequest -> m CreateTopicResponse)
@@ -63,7 +64,7 @@ data ExecutorState =
 create :: MonadIO m => Node
                     -> Manager
                     -> Journal Value
-                    -> Proposer Handler
+                    -> Proposer
                     -> CallbackMap
                     -> IO (Executor m)
 create self http journal proposer callbackMap = do
@@ -79,6 +80,7 @@ create self http journal proposer callbackMap = do
     let cb = callbackImpl self callbackMap tvTopicState topicLocks journal
 
     pure $ Executor { join           = liftIO . joinImpl tvTopicState pingBuilder' sc
+                    , joinCluster    = liftIO . joinClusterImpl self http cb
                     , catchup        = liftIO . catchupImpl http cb
                     , ping           = liftIO . pingImpl pingBuilder'
                     , createTopic    = liftIO . atomically . createTopicImpl tvTopicState
@@ -167,7 +169,7 @@ submitClusterImpl http self tvTopicState callbackMap (SubmitClusterRequest topic
                     NotifyRetry       -> go node
 
 submitNodeImpl :: Node
-               -> Proposer Handler
+               -> Proposer
                -> TVar (Map Topic ExecutorState)
                -> SubmitNodeRequest
                -> IO SubmitNodeResponse
@@ -202,22 +204,18 @@ submitNodeImpl self proposer tvTopicState (SubmitNodeRequest topic u val) = do
         let ch       = clusterHash mLeader cluster
             value    = Value ch u val'
             request  = ProposeRequest cluster topic seqNum value
-            proposal = propose proposer request
 
-        runHandler proposal >>= \case
+        propose proposer request >>= \case
 
-            Left l ->
-                error $ show l
-
-            Right NoHighestNackRoundNo ->
+            NoHighestNackRoundNo ->
                 pure SubmitRetry
 
-            Right (NotAccepted _) ->
+            (NotAccepted _) ->
                 pure SubmitRetry
 
             -- Only check to see if need to resend
             -- Everything else is called-back by learner
-            Right (Accepted (Value _ u' _) )
+            (Accepted (Value _ u' _) )
 
                 -- Someone else's value
                 | u /= u' -> pure SubmitRetry
@@ -388,6 +386,38 @@ joinImpl tvTopicState pingBuilder' submitCluster (JoinPrepare topic joiner) = do
                             printf "Cluster can reach joiner\n"
                             SubmitClusterResponse (Right seqNum) <- submitCluster (SubmitClusterRequest topic (CommandValue (AddNode joiner)))
                             pure $ JoinedAt seqNum
+
+joinClusterImpl :: Node
+                -> Manager
+                -> (Mode -> Topic -> SequenceNum -> Value -> IO Mode)
+                -> JoinClusterRequest
+                -> IO JoinClusterResponse
+joinClusterImpl self http cb (JoinClusterRequest host topic) = do
+
+    -- Tell host to Propose that newNode is now part of the cluster
+    joinBuilder http host (JoinPrepare topic self) >>= \case
+        Left l -> error $ show l
+        Right (JoinedAt (SequenceNum _end)) -> do
+
+            -- Ask new node what sequence number it's up to
+            -- TODO - shouldn't need to http becaues asking self
+            sequenceNumBuilder http self (SequenceNumRequest topic) >>= \case
+                Left l -> error $ show l
+                Right (SequenceNumResponse (Just (SequenceNum start))) ->
+                    -- TODO: optimise for more than one-at-a-time
+                    let loop sn =
+
+                            -- Ask host for the next value
+                            readJournalBuilder http host (ReadJournalRequest topic [SequenceNum sn]) >>= \case
+                                Left e -> error $ show e
+                                Right (ReadJournalResponse responses) ->
+                                    forM_ responses $ \(s',v') -> do
+
+                                        -- Journal the asked value
+                                        mode <- cb Catchup topic s' v'
+                                        when (mode == Catchup) (loop $ sn + 1)
+                    in loop (start + 1)
+            pure JoinClusterResponse
 
 getSequenceNumImpl :: TVar (Map Topic ExecutorState)
                    -> SequenceNumRequest
