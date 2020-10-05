@@ -2,7 +2,7 @@
 
 module Server.Paxos.Executor where
 
-import Client.WebNodeClient
+import Client.InternalClient      (PingClient, joinBuilder, pingBuilder, readJournalBuilder, sequenceNumBuilder, submitNodeBuilder)
 import Entity.Node
 import Entity.SequenceNum
 import Entity.Topic
