@@ -1,6 +1,7 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, TypeOperators #-}
 
-import           Client.WebNodeClient
+import           Client.ExternalClient
+import           Client.InternalClient
 import           Entity.Id                      (Id (..))
 import           Entity.Node                    (Node (..))
 import           Entity.Port                    (Port (..))
@@ -14,8 +15,10 @@ import           Requests.JoinCluster
 import           Requests.ReadJournal
 import           Requests.SubmitCluster
 import qualified Server.CallbackMap        as C (CallbackMap (..), create)
+import           Server.ExternalApi             (ExternalApi)
+import           Server.InternalApi             (InternalApi)
 import           Server.Locks                   (newLocks)
-import           Server.NodeApi                 (NodeApi)
+
 import qualified Server.Paxos.Acceptor     as A (Acceptor (..), create)
 import qualified Server.Paxos.Executor     as E
 import qualified Server.Paxos.Learner      as L (Learner (..), create)
@@ -59,27 +62,30 @@ runExecutor http callbackMap node@(Node ident (Port port)) = do
     learnerLocks  <- newLocks
     learner       <- L.create ident learnerLocks (E.callback executor E.Regular)
 
-    serverReady   <- newEmptyMVar
+    ready <- newEmptyMVar
 
     let settings = setPort port
-                 . setBeforeMainLoop (putMVar serverReady ())
+                 . setBeforeMainLoop (putMVar ready ())
                  $ defaultSettings
 
-    _ <- async . runSettings settings $
-        serve (Proxy :: Proxy NodeApi) $ E.join executor
-                                    :<|> E.joinCluster executor
-                                    :<|> E.ping executor
-                                    :<|> E.catchup executor
-                                    :<|> E.createTopic executor
-                                    :<|> E.submitCluster executor
-                                    :<|> E.submitNode executor
-                                    :<|> E.readJournal executor
-                                    :<|> E.getSequenceNum executor
-                                    :<|> A.prepare acceptor
-                                    :<|> A.accept acceptor
-                                    :<|> L.learn learner
+        internalRoutes = E.join executor
+                    :<|> E.ping executor
+                    :<|> E.catchup executor
+                    :<|> E.submitNode executor
+                    :<|> E.readJournal executor
+                    :<|> E.getSequenceNum executor
+                    :<|> A.prepare acceptor
+                    :<|> A.accept acceptor
+                    :<|> L.learn learner
 
-    takeMVar serverReady
+        externalRoutes = E.joinCluster executor
+                    :<|> E.createTopic executor
+                    :<|> E.submitCluster executor
+
+    _ <- async . runSettings settings $
+        serve (Proxy :: Proxy (InternalApi :<|> ExternalApi)) $ internalRoutes :<|> externalRoutes
+
+    takeMVar ready
 
 main :: IO ()
 main = do

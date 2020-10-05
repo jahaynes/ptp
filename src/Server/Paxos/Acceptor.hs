@@ -6,7 +6,7 @@ module Server.Paxos.Acceptor ( Acceptor (..)
                              , create
                              ) where
 
-import Client.WebNodeClient       (LearnClient)
+import Client.InternalClient (LearnClient)
 import Entity.Id
 import Entity.Node
 import Entity.Proposal

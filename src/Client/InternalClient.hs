@@ -1,47 +1,25 @@
-module Client.WebNodeClient ( AcceptClient
-                            , LearnClient
-                            , PrepareClient
-                            , PingClient
-                            , acceptBuilder
-                            , catchupBuilder
-                            , createTopicBuilder
-                            , joinBuilder
-                            , joinClusterBuilder
-                            , learnBuilder
-                            , prepareBuilder
-                            , pingBuilder
-                            , readJournalBuilder
-                            , sequenceNumBuilder
-                            , submitClusterBuilder
-                            , submitNodeBuilder
-                            ) where
+module Client.InternalClient where
 
 import Entity.Node
 import Entity.Port
 import Requests.Accept
 import Requests.Catchup
-import Requests.CreateTopic
 import Requests.Join
-import Requests.JoinCluster
 import Requests.Learn
 import Requests.Ping
 import Requests.Prepare
 import Requests.ReadJournal
 import Requests.SequenceNum
-import Requests.SubmitCluster
 import Requests.SubmitNode
-import Server.NodeApi
+import Server.InternalApi
 
 import Network.HTTP.Client      (Manager)
 import Servant
 import Servant.Client
 
 type JoinClient          e =           JoinRequest -> IO (Either e JoinResponse)
-type JoinClusterClient   e =    JoinClusterRequest -> IO (Either e JoinClusterResponse)
 type PingClient          e =                  Ping -> IO (Either e Pong)
 type CatchupClient       e =        CatchupRequest -> IO (Either e CatchupResponse)
-type CreateTopicClient   e =    CreateTopicRequest -> IO (Either e CreateTopicResponse)
-type SubmitClusterClient e =  SubmitClusterRequest -> IO (Either e SubmitClusterResponse)
 type SubmitNodeClient    e =     SubmitNodeRequest -> IO (Either e SubmitNodeResponse)
 type ReadJournalClient   e =    ReadJournalRequest -> IO (Either e ReadJournalResponse)
 type SequenceNumClient   e =    SequenceNumRequest -> IO (Either e SequenceNumResponse)
@@ -50,11 +28,8 @@ type AcceptClient        e =         AcceptRequest -> IO (Either e AcceptRespons
 type LearnClient         e =          LearnRequest -> IO (Either e LearnResponse)
 
 join          ::  JoinRequest          -> ClientM JoinResponse
-joinCluster   ::  JoinClusterRequest   -> ClientM JoinClusterResponse
 ping          ::  Ping                 -> ClientM Pong
 catchup       ::  CatchupRequest       -> ClientM CatchupResponse
-createTopic   ::  CreateTopicRequest   -> ClientM CreateTopicResponse
-submitCluster ::  SubmitClusterRequest -> ClientM SubmitClusterResponse
 submitNode    ::  SubmitNodeRequest    -> ClientM SubmitNodeResponse
 readJournal   ::  ReadJournalRequest   -> ClientM ReadJournalResponse
 sequenceNum   ::  SequenceNumRequest   -> ClientM SequenceNumResponse
@@ -62,27 +37,19 @@ prepare       :: PrepareRequest        -> ClientM PrepareResponse
 accept        ::  AcceptRequest        -> ClientM AcceptResponse
 learn         ::   LearnRequest        -> ClientM LearnResponse
 join
-    :<|> joinCluster
     :<|> ping
     :<|> catchup
-    :<|> createTopic
-    :<|> submitCluster
     :<|> submitNode
     :<|> readJournal
     :<|> sequenceNum
     :<|> prepare
     :<|> accept
-    :<|> learn = client (Proxy :: Proxy NodeApi)
+    :<|> learn = client (Proxy :: Proxy InternalApi)
 
 joinBuilder :: Manager -> Node -> JoinClient ClientError
 joinBuilder http (Node _ (Port p)) = do
     let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
     (\jr -> runClientM (join jr) env)
-
-joinClusterBuilder :: Manager -> Node -> JoinClusterClient ClientError
-joinClusterBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
-    (\jcr -> runClientM (joinCluster jcr) env)
 
 pingBuilder :: Manager -> Node -> PingClient ClientError
 pingBuilder http (Node _ (Port p)) = do
@@ -93,16 +60,6 @@ catchupBuilder :: Manager -> Node -> CatchupClient ClientError
 catchupBuilder http (Node _ (Port p)) = do
     let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
     (\cr -> runClientM (catchup cr) env)
-
-createTopicBuilder :: Manager -> Node -> CreateTopicClient ClientError
-createTopicBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
-    (\ctr -> runClientM (createTopic ctr) env)
-
-submitClusterBuilder :: Manager -> Node -> SubmitClusterClient ClientError
-submitClusterBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
-    (\sr -> runClientM (submitCluster sr) env)
 
 submitNodeBuilder :: Manager -> Node -> SubmitNodeClient ClientError
 submitNodeBuilder http (Node _ (Port p)) = do

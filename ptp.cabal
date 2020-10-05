@@ -40,7 +40,8 @@ library ptp-lib
   exposed-modules:     Entity.Id,
                        Entity.SequenceNum,
                        Entity.Topic
-  other-modules:       Client.WebNodeClient,
+  other-modules:       Client.ExternalClient,
+                       Client.InternalClient,
                        Entity.Node,
                        Entity.Port,
                        Entity.Proposal,
@@ -61,9 +62,10 @@ library ptp-lib
                        Requests.SubmitCluster,
                        Requests.SubmitNode,
                        Server.CallbackMap,
+                       Server.ExternalApi,
                        Server.Files,
+                       Server.InternalApi,
                        Server.Locks,
-                       Server.NodeApi,
                        Server.Paxos.Learner,
                        Server.Paxos.Proposer
 
@@ -71,7 +73,8 @@ executable ptp
   import:              deps
   main-is:             Main.hs
   hs-source-dirs:      src
-  other-modules:       Client.WebNodeClient,
+  other-modules:       Client.ExternalClient,
+                       Client.InternalClient,
                        Entity.Id,
                        Entity.Node,
                        Entity.Port,
@@ -96,9 +99,10 @@ executable ptp
                        Requests.SubmitCluster,
                        Requests.SubmitNode,
                        Server.CallbackMap,
+                       Server.ExternalApi,
                        Server.Files,
+                       Server.InternalApi,
                        Server.Locks,
-                       Server.NodeApi,
                        Server.Paxos.Acceptor,
                        Server.Paxos.Executor,
                        Server.Paxos.Learner,

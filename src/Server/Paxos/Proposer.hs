@@ -4,7 +4,7 @@ module Server.Paxos.Proposer ( Proposer (..)
                              , create
                              ) where
 
-import Client.WebNodeClient  (AcceptClient, PrepareClient)
+import Client.InternalClient  (AcceptClient, PrepareClient)
 import Entity.Node
 import Entity.Proposal
 import Entity.ProposalNumber (ProposalNumber (..), newProposalNumber)
