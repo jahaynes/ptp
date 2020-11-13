@@ -1,4 +1,14 @@
-module Client.PaxosClient where
+module Client.PaxosClient ( ProposeClient
+                          , PrepareClient
+                          , AcceptClient
+                          , LearnClient
+                          , PeekClient
+                          , proposeBuilder
+                          , prepareBuilder
+                          , acceptBuilder
+                          , learnBuilder
+                          , peekBuilder
+                          ) where
 
 import Entity.Node      (Node (Node))
 import Entity.Port      (Port (Port))

@@ -1,8 +1,12 @@
 {-# LANGUAGE LambdaCase,
              ScopedTypeVariables #-}
 
+import           Client.SubmitterClient
 import           Entity.Decree
-import           Submitter         as S
+import           SubmitterNode as SN
+import           Requests.CreateTopic
+import           Requests.Submit
+import           Requests.Sync
 
 import           Entity.Id
 import           Entity.Node
@@ -14,7 +18,7 @@ import           Control.Concurrent       (threadDelay)
 import           Control.Concurrent.Async (forConcurrently_)
 import           Control.Monad            (foldM_, replicateM)
 import           Data.Functor             ((<&>))
-import           Network.HTTP.Client      (defaultManagerSettings, newManager)
+import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
 import           Text.Printf              (printf)
 
 topic :: Topic
@@ -31,47 +35,50 @@ main = do
     let ports          = map Port . take 3 $ [8080..]
         defaultCluster = zipWith Node ids ports                     -- TODO these IDs aren't exactly used!
 
-    submitter1 <- S.create (Node (Id "submitter-1") (Port 30)) http
-    submitter2 <- S.create (Node (Id "submitter-2") (Port 30)) http
+    let submitNode1 = Node (Id "submitter-1") (Port 8180)
+    let submitNode2 = Node (Id "submitter-2") (Port 8181)
 
-    forConcurrently_ [submitter1, submitter2] $ \sub -> do
+    _ <- SN.create http submitNode1
+    _ <- SN.create http submitNode2
+
+    forConcurrently_ [submitNode1, submitNode2] $ \subNode -> do
 
         -- Create topic
-        createTopic sub topic defaultCluster
+        _ <- (createTopicBuilder http subNode) (CreateTopicRequest defaultCluster topic)
 
         -- Sync
-        (lo, hi) <- sync sub topic
+        Right (SyncResponse lo hi) <- (syncBuilder http subNode) (SyncRequest topic)
         printf "Synced on %s from: %s to %s\n" (show topic) (show lo) (show hi)
 
         -- Generate data
-        producer sub
-
-    pure ()
+        producer http subNode
 
 newtype Backoff =
     Backoff Int
 
-producer :: Submitter -> IO ()
-producer submitter = foldM_ f (Backoff 10000, 1) [1..]
+producer :: Manager -> Node -> IO ()
+producer http subNode = foldM_ f (Backoff 10000, 1) [1..]
     where
     f :: (Backoff, Int) -> Int -> IO (Backoff, Int)
     f (Backoff bo, n) i = do
 
         printf "Attempt %d: %d: " i n
-        submit submitter (Topic "test") (ValueDecree $ "msg: " ++ show n) >>= \case
+        (submitBuilder http subNode) (SubmitRequest (Topic "test") (ValueDecree $ "msg: " ++ show n)) >>= \case
 
-            Submitted -> do
+            Left e -> error $ show e
+
+            Right Submitted -> do
                 printf "submitted\n"
                 pure (better, n + 1)
 
-            RetryRequested -> do
+            Right RetryRequested -> do
                 printf "retry needed\n"
                 pure (better, n)
 
-            OtherLeader leader -> do
+            Right (OtherLeader _leader) -> do
                 error "not leader"
 
-            SubmitError e -> do
+            Right (SubmitError e) -> do
                 threadDelay bo
                 printf "%s\n" e
                 pure (worse, n)

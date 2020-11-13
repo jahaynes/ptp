@@ -106,10 +106,16 @@ executable submitter
   ghc-options:         -Wall -O3 -threaded
   hs-source-dirs:      src-submitter
   main-is:             Main.hs
-  other-modules:       Entity.ClusterHash,
+  other-modules:       Client.SubmitterClient,
+                       Entity.ClusterHash,
                        Entity.Decree,
                        Entity.Msg,
+                       Requests.CreateTopic
+                       Requests.Submit,
+                       Requests.Sync,
                        Submitter,
+                       SubmitterNode,
+                       SubmitterApi,
                        Journal,
                        PubSub
   default-language:    Haskell2010
