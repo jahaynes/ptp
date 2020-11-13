@@ -19,6 +19,7 @@ import           Requests.Peek
 import           Requests.Propose
 
 import           Control.Concurrent
+import           Control.Concurrent.Async (forConcurrently_, mapConcurrently)
 import           Control.Concurrent.STM
 import           Control.Monad           (forM_)
 import           Control.Monad.IO.Class  (MonadIO, liftIO)
@@ -90,7 +91,7 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
         let hi = n + 9
             range = SequenceNum <$> [n .. hi]
 
-        msvs <- mapMaybe handlePeek <$> mapM (\pc -> pc (PeekRequest topic range)) peekClients
+        msvs <- mapMaybe handlePeek <$> mapConcurrently (\pc -> pc (PeekRequest topic range)) peekClients
 
         let numNodes = S.size cluster
             reachableNodes = length msvs
@@ -146,8 +147,6 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
         repair :: Int -> [Map.Map SequenceNum Value] -> IO ()
         repair numNodes msvs = do
 
-            -- threadDelay 300000
-
             let superMap = Map.unionsWith (\a b -> if a == b then a else error "irreparable mismatch") msvs
 
             let missingKeys = map fst
@@ -157,17 +156,12 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
                             . fmap (const 1 <$>)
                             $ msvs
 
-            mapM_ print $ Map.toList superMap
-
-            print ("Missing keys: ", length missingKeys)
-
-            forM_ missingKeys $ \key -> do
+            forConcurrently_ missingKeys $ \key -> do
 
                 let Just val = Map.lookup key superMap
 
                 printf "Resubmitting to cluster %s: %s -> %s\n" (show cluster) (show key) (show val)
 
-                -- _ <- submitImpl me http stateMachines topic decree
                 proposeClient <- chooseProposeClient http cluster
 
                 -- Don't 'handle' in repair.  Let 'go' restart this batch and handle it there
