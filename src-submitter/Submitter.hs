@@ -146,6 +146,8 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
         repair :: Int -> [Map.Map SequenceNum Value] -> IO ()
         repair numNodes msvs = do
 
+            -- threadDelay 300000
+
             let superMap = Map.unionsWith (\a b -> if a == b then a else error "irreparable mismatch") msvs
 
             let missingKeys = map fst
@@ -155,11 +157,15 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
                             . fmap (const 1 <$>)
                             $ msvs
 
+            mapM_ print $ Map.toList superMap
+
+            print ("Missing keys: ", length missingKeys)
+
             forM_ missingKeys $ \key -> do
 
                 let Just val = Map.lookup key superMap
 
-                printf "Resubmitting: %s -> %s\n" (show key) (show val)
+                printf "Resubmitting to cluster %s: %s -> %s\n" (show cluster) (show key) (show val)
 
                 -- _ <- submitImpl me http stateMachines topic decree
                 proposeClient <- chooseProposeClient http cluster
@@ -237,6 +243,7 @@ submitImpl me http stateMachines@(StateMachines sms) (SubmitRequest topic decree
             NoHighestNackRoundNo ->
                 pure $ SubmitError "Paxos cluster could not find a Nack among responses.  Not enough nodes alive?"
 
+-- TODO - this could be the "local" one
 chooseProposeClient :: Manager -> Set Node -> IO (ProposeClient ClientError)
 chooseProposeClient http cluster = proposeBuilder http <$> choice (S.toList cluster)
     where

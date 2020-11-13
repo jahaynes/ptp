@@ -10,7 +10,8 @@ module Client.PaxosClient ( ProposeClient
                           , peekBuilder
                           ) where
 
-import Entity.Node      (Node (Node))
+import Entity.Host      (getHostSafe)
+import Entity.Node      (Node (..))
 import Entity.Port      (Port (Port))
 import Requests.Accept  (AcceptRequest, AcceptResponse)
 import Requests.Learn   (LearnRequest, LearnResponse)
@@ -41,26 +42,36 @@ propose
     :<|> peek = client (Proxy :: Proxy PaxosApi)
 
 proposeBuilder :: Manager -> Node -> ProposeClient ClientError
-proposeBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+proposeBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\prop -> runClientM (propose prop) env)
 
 prepareBuilder :: Manager -> Node -> PrepareClient ClientError
-prepareBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+prepareBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\prep -> runClientM (prepare prep) env)
 
 acceptBuilder :: Manager -> Node -> AcceptClient ClientError
-acceptBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+acceptBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\acc -> runClientM (accept acc) env)
 
 learnBuilder :: Manager -> Node -> LearnClient ClientError
-learnBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+learnBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\lrn -> runClientM (learn lrn) env)
 
 peekBuilder :: Manager -> Node -> PeekClient ClientError
-peekBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+peekBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\pr -> runClientM (peek pr) env)

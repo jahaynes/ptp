@@ -10,7 +10,8 @@ import Requests.Submit      (SubmitRequest, SubmitResponse)
 import Requests.Sync        (SyncRequest, SyncResponse)
 import SubmitterApi         (SubmitterApi)
 
-import Entity.Node (Node (Node))
+import Entity.Host (getHostSafe)
+import Entity.Node (Node (..))
 import Entity.Port (Port (Port))
 
 import Network.HTTP.Client (Manager)
@@ -29,16 +30,23 @@ createTopic
     :<|> submit = client (Proxy :: Proxy SubmitterApi)
 
 createTopicBuilder :: Manager -> Node -> CreateTopicClient ClientError
-createTopicBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+createTopicBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\ctr -> runClientM (createTopic ctr) env)
 
 syncBuilder :: Manager -> Node -> SyncClient ClientError
-syncBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+syncBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\sr -> runClientM (sync sr) env)
 
 submitBuilder :: Manager -> Node -> SubmitClient ClientError
-submitBuilder http (Node _ (Port p)) = do
-    let env = mkClientEnv http (BaseUrl Http "127.0.0.1" p "")
+submitBuilder http node = do
+    let h = getHostSafe $ getHost node
+        Port p = getPort node
+        env = mkClientEnv http (BaseUrl Http h p "")
     (\sr -> runClientM (submit sr) env)
+

@@ -15,13 +15,15 @@ import           Servant
 create :: Manager
        -> Node
        -> IO (Async ())
-create http me@(Node _ (Port port)) = do
+create http node = do
 
-    submitter <- S.create me http
+    submitter <- S.create node http
 
     ready <- newEmptyMVar
 
-    let settings = setPort port
+    let Port p = getPort node
+
+    let settings = setPort p
                  . setBeforeMainLoop (putMVar ready ())
                  $ defaultSettings
 

@@ -8,6 +8,7 @@ import           Requests.CreateTopic
 import           Requests.Submit
 import           Requests.Sync
 
+import           Entity.Host
 import           Entity.Id
 import           Entity.Node
 import           Entity.Port
@@ -32,11 +33,14 @@ main = do
     http <- newManager defaultManagerSettings
 
     ids               <- replicateM 3 (uniq <&> \(Uniq u) -> Id u)  -- TODO these IDs aren't exactly used!
-    let ports          = map Port . take 3 $ [8080..]
-        defaultCluster = zipWith Node ids ports                     -- TODO these IDs aren't exactly used!
+    let paxosHosts     = [ host "192.168.0.24"
+                         , host "192.168.0.12"
+                         , host "192.168.0.23" ]
+        ports          = map Port . take 3 $ [8080..]
+        defaultCluster = zipWith3 Node ids paxosHosts ports                     -- TODO these IDs aren't exactly used!
 
-    let submitNode1 = Node (Id "submitter-1") (Port 8180)
-    let submitNode2 = Node (Id "submitter-2") (Port 8181)
+    let submitNode1 = Node (Id "submitter-1") (host "192.168.0.12") (Port 8180)
+    let submitNode2 = Node (Id "submitter-2") (host "192.168.0.12") (Port 8181)
 
     _ <- SN.create http submitNode1
     _ <- SN.create http submitNode2
@@ -47,8 +51,9 @@ main = do
         _ <- (createTopicBuilder http subNode) (CreateTopicRequest defaultCluster topic)
 
         -- Sync
-        Right (SyncResponse lo hi) <- (syncBuilder http subNode) (SyncRequest topic)
-        printf "Synced on %s from: %s to %s\n" (show topic) (show lo) (show hi)
+        (syncBuilder http subNode) (SyncRequest topic) >>= \case
+            Left e -> printf "Could not sync.  Shutting down: %s\n" (show e)
+            Right (SyncResponse lo hi) -> printf "Synced on %s from: %s to %s\n" (show topic) (show lo) (show hi)
 
         -- Generate data
         producer http subNode

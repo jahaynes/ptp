@@ -35,6 +35,7 @@ library paxos-lib
   hs-source-dirs:      src-paxos
   default-language:    Haskell2010
   exposed-modules:     Client.PaxosClient
+                       Entity.Host
                        Entity.Id
                        Entity.Node
                        Entity.Port
@@ -68,6 +69,7 @@ executable paxos-bin
   default-language:    Haskell2010
   build-depends:       paxos-lib
   other-modules:       Client.PaxosClient
+                       Entity.Host
                        Entity.Id
                        Entity.Node
                        Entity.Port
