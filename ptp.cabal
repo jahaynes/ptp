@@ -15,10 +15,7 @@ common deps
                     deepseq,
                     directory,
                     hashable,
-                    heaps,
                     http-client,
-                    random,
-                    rio,
                     safe,
                     safe-exceptions,
                     serialise,
@@ -28,94 +25,94 @@ common deps
                     split,
                     stm,
                     stm-containers,
-                    wai,
+                    transformers,
                     uuid,
                     warp
 
-library ptp-lib
+library paxos-lib
   import:              deps
   ghc-options:         -Wall -O3
-  hs-source-dirs:      src
+  hs-source-dirs:      src-paxos
   default-language:    Haskell2010
-  exposed-modules:     Entity.Id,
-                       Entity.SequenceNum,
+  exposed-modules:     Client.PaxosClient
+                       Entity.Id
+                       Entity.Node
+                       Entity.Port
+                       Entity.Proposal
+                       Entity.SequenceNum
                        Entity.Topic
-  other-modules:       Client.ExternalClient,
-                       Client.InternalClient,
-                       Entity.Node,
-                       Entity.Port,
-                       Entity.Proposal,
-                       Entity.ProposalNumber,
-                       Entity.Value,
-                       Quorum,
-                       Requests.Accept,
-                       Requests.Catchup,
-                       Requests.CreateTopic,
-                       Requests.Join,
-                       Requests.JoinCluster,
-                       Requests.Learn,
-                       Requests.Ping,
-                       Requests.Prepare,
-                       Requests.Propose,
-                       Requests.ReadJournal,
-                       Requests.SequenceNum,
-                       Requests.SubmitCluster,
-                       Requests.SubmitNode,
-                       Server.CallbackMap,
-                       Server.ExternalApi,
-                       Server.Files,
-                       Server.InternalApi,
-                       Server.Locks,
-                       Server.Paxos.Learner,
+                       Entity.Uniq
+                       Entity.Value
+                       Requests.Accept
+                       Requests.Learn
+                       Requests.Peek
+                       Requests.Prepare
+                       Requests.Propose
+                       Server.InMemStorage
+                       Server.LocalFileStorage
+                       Server.Locks
+                       Server.Paxos.Acceptor
+                       Server.Paxos.Learner
+                       Server.Paxos.PaxosNode
                        Server.Paxos.Proposer
+                       Server.PaxosApi
+                       Server.Storage
+  other-modules:       Entity.ProposalNumber
+                       Quorum
 
-executable ptp
+executable paxos-bin
   import:              deps
+  ghc-options:         -Wall -O3 -threaded
+  hs-source-dirs:      src-paxos
   main-is:             Main.hs
-  hs-source-dirs:      src
-  other-modules:       Client.ExternalClient,
-                       Client.InternalClient,
-                       Entity.Id,
-                       Entity.Node,
-                       Entity.Port,
-                       Entity.Proposal,
-                       Entity.ProposalNumber,
-                       Entity.SequenceNum,
-                       Entity.Topic,
-                       Entity.Value,
-                       Journal,
-                       Quorum,
-                       Requests.Accept,
-                       Requests.Catchup
-                       Requests.CreateTopic,
-                       Requests.Join,
-                       Requests.JoinCluster,
-                       Requests.Learn,
-                       Requests.Ping,
-                       Requests.Prepare,
-                       Requests.Propose,
-                       Requests.ReadJournal,
-                       Requests.SequenceNum,
-                       Requests.SubmitCluster,
-                       Requests.SubmitNode,
-                       Server.CallbackMap,
-                       Server.ExternalApi,
-                       Server.Files,
-                       Server.InternalApi,
-                       Server.Locks,
-                       Server.Paxos.Acceptor,
-                       Server.Paxos.Executor,
-                       Server.Paxos.Learner,
-                       Server.Paxos.Proposer
-  build-depends:       ptp-lib
   default-language:    Haskell2010
-  ghc-options:         -O3 -Wall -threaded
+  build-depends:       paxos-lib
+  other-modules:       Client.PaxosClient
+                       Entity.Id
+                       Entity.Node
+                       Entity.Port
+                       Entity.Proposal
+                       Entity.ProposalNumber
+                       Entity.SequenceNum
+                       Entity.Topic
+                       Entity.Uniq
+                       Entity.Value
+                       Quorum
+                       Requests.Accept
+                       Requests.Learn
+                       Requests.Peek
+                       Requests.Prepare
+                       Requests.Propose
+                       Server.LocalFileStorage
+                       Server.Locks
+                       Server.Paxos.Acceptor
+                       Server.Paxos.Learner
+                       Server.Paxos.PaxosNode
+                       Server.Paxos.Proposer
+                       Server.PaxosApi
+                       Server.Storage
 
---test-suite test-ptp
---    import:           deps
---    ghc-options:      -Wall -O3
---    type:             exitcode-stdio-1.0
---    main-is:          Tests.hs
---    build-depends:    ptp-lib, random-shuffle
---    hs-source-dirs:   test
---    default-language: Haskell2010
+test-suite test-paxos-lib
+  import:           deps
+  ghc-options:      -Wall -O3
+  type:             exitcode-stdio-1.0
+  main-is:          Tests.hs
+  build-depends:    paxos-lib, list-t, random, split
+  hs-source-dirs:   test
+  default-language: Haskell2010
+
+executable submitter
+  import:              deps
+  ghc-options:         -Wall -O3 -threaded
+  hs-source-dirs:      src-submitter
+  main-is:             Main.hs
+  other-modules:       Entity.ClusterHash,
+                       Entity.Decree,
+                       Entity.Msg,
+                       Submitter,
+                       Journal,
+                       PubSub
+  default-language:    Haskell2010
+  build-depends:       paxos-lib,
+                       list-t,
+                       random
