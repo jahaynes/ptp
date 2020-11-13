@@ -232,7 +232,7 @@ submitImpl me http stateMachines@(StateMachines sms) (SubmitRequest topic decree
                     else pure RetryRequested
 
             NotAccepted x ->
-                pure . SubmitError $ printf "Paxos cluster didn't accept %s.  Not enough nodes alive?" (show x)
+                pure . SubmitError $ printf "Paxos cluster didn't accept %s -> %s. %s.  Not enough nodes alive?" (show seqNum) (show val) (show x)
 
             NoHighestNackRoundNo ->
                 pure $ SubmitError "Paxos cluster could not find a Nack among responses.  Not enough nodes alive?"

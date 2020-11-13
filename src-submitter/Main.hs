@@ -57,31 +57,32 @@ newtype Backoff =
     Backoff Int
 
 producer :: Manager -> Node -> IO ()
-producer http subNode = foldM_ f (Backoff 10000, 1) [1..]
+producer http sn = foldM_ f (sn, Backoff 10000, 1) [1..]
     where
-    f :: (Backoff, Int) -> Int -> IO (Backoff, Int)
-    f (Backoff bo, n) i = do
+    f :: (Node, Backoff, Int) -> Int -> IO (Node, Backoff, Int)
+    f (subNode, Backoff bo, n) i = do
 
-        printf "Attempt %d: %d: " i n
+        printf "Attempt %d towards %s: %d: " i (show subNode) n
         (submitBuilder http subNode) (SubmitRequest (Topic "test") (ValueDecree $ "msg: " ++ show n)) >>= \case
 
             Left e -> error $ show e
 
             Right Submitted -> do
                 printf "submitted\n"
-                pure (better, n + 1)
+                pure (subNode, better, n + 1)
 
             Right RetryRequested -> do
                 printf "retry needed\n"
-                pure (better, n)
+                pure (subNode, better, n)
 
-            Right (OtherLeader _leader) -> do
-                error "not leader"
+            Right (OtherLeader leader) -> do
+                printf "switching leader %s -> %s\n" (show subNode) (show leader)
+                pure (leader, better, n)
 
             Right (SubmitError e) -> do
                 threadDelay bo
                 printf "%s\n" e
-                pure (worse, n)
+                pure (subNode, worse, n)
 
         where
         better :: Backoff
