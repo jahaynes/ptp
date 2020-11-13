@@ -5,6 +5,9 @@ module Submitter where
 import           Entity.ClusterHash
 import           Entity.Decree
 import           Entity.Msg
+import           Requests.CreateTopic
+import           Requests.Submit
+import           Requests.Sync
 
 import           Client.PaxosClient
 import           Entity.Node
@@ -18,6 +21,7 @@ import           Requests.Propose
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Monad           (forM_)
+import           Control.Monad.IO.Class  (MonadIO, liftIO)
 import           Data.Functor            ((<&>))
 import qualified Data.Map as Map
 import           Data.Maybe               (mapMaybe)
@@ -30,18 +34,45 @@ import qualified StmContainers.Map as M
 import           System.Random           (randomRIO)
 import           Text.Printf             (printf)
 
--- Should this be REST?
-data Submitter =
-    Submitter { createTopic :: !(Topic -> [Node] -> IO ())
-              , sync        :: !(Topic -> IO (SequenceNum, SequenceNum))
-              , submit      :: !(Topic -> Decree -> IO SubmitResult)
+data Submitter m =
+    Submitter { createTopic :: !(CreateTopicRequest -> m CreateTopicResponse)
+              , sync        :: !(SyncRequest        -> m SyncResponse)
+              , submit      :: !(SubmitRequest      -> m SubmitResponse)
               }
+
+newtype StateMachines =
+    StateMachines (Map Topic StateMachine)
+
+data StateMachine =
+    StateMachine { getHighestKnown :: !SequenceNum
+                 , getCluster      :: !(Set Node)
+                 , getLeader       :: !(Maybe Node)
+                 }
+
+createTopicImpl :: StateMachines
+                -> CreateTopicRequest
+                -> IO CreateTopicResponse
+createTopicImpl (StateMachines m) (CreateTopicRequest nodes topic) = do
+    let sm = StateMachine { getHighestKnown = SequenceNum 0
+                          , getCluster      = S.fromList nodes
+                          , getLeader       = Nothing
+                          }
+    atomically $ M.insert sm topic m
+    pure CreateTopicResponse
+
+create :: MonadIO m => Node -> Manager -> IO (Submitter m)
+create me http = do
+    stateMachines <- StateMachines <$> M.newIO
+    pure $ Submitter { createTopic = liftIO . createTopicImpl stateMachines
+                     , sync        = liftIO . syncImpl http stateMachines
+                     , submit      = liftIO . submitImpl me http stateMachines
+                     }
 
 syncImpl :: Manager
          -> StateMachines
-         -> Topic
-         -> IO (SequenceNum, SequenceNum)
-syncImpl http stateMachines@(StateMachines sms) topic = do
+         -> SyncRequest
+         -> IO SyncResponse
+syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
 
     -- Get the state machine state
     Just (StateMachine _ cluster _) <- atomically $ M.lookup topic sms
@@ -51,7 +82,7 @@ syncImpl http stateMachines@(StateMachines sms) topic = do
     let start = SequenceNum 1
     end <- go cluster peekClients start
 
-    pure (start, end)
+    pure $ SyncResponse start end
 
     where
     go cluster peekClients (SequenceNum n) = do
@@ -138,47 +169,12 @@ syncImpl http stateMachines@(StateMachines sms) topic = do
 
                 pure ()
 
-data SubmitResult = Submitted
-                  | RetryRequested
-                  | OtherLeader !Node
-                  | SubmitError !String
-
-newtype StateMachines =
-    StateMachines (Map Topic StateMachine)
-
-data StateMachine =
-    StateMachine { getHighestKnown :: !SequenceNum
-                 , getCluster      :: !(Set Node)
-                 , getLeader       :: !(Maybe Node)
-                 }
-
-createTopicImpl :: StateMachines
-                -> Topic
-                -> [Node]
-                -> IO ()
-createTopicImpl (StateMachines m) topic nodes =
-    let sm = StateMachine { getHighestKnown = SequenceNum 0
-                          , getCluster      = S.fromList nodes
-                          , getLeader       = Nothing
-                          }
-    in atomically $ M.insert sm topic m
-
-create :: Node -> Manager -> IO Submitter
-create me http = do
-    stateMachines <- StateMachines <$> M.newIO
-    pure $ Submitter { createTopic = createTopicImpl stateMachines
-                     , sync        = syncImpl http stateMachines
-                     , submit      = submitImpl me http stateMachines
-                     }
-
--- Should this be REST?
 submitImpl :: Node
            -> Manager
            -> StateMachines
-           -> Topic
-           -> Decree
-           -> IO SubmitResult
-submitImpl me http stateMachines@(StateMachines sms) topic decree = do
+           -> SubmitRequest
+           -> IO SubmitResponse
+submitImpl me http stateMachines@(StateMachines sms) (SubmitRequest topic decree) = do
 
     -- Get the state machine state
     Just (StateMachine highestKnown cluster mLeader) <- atomically $ M.lookup topic sms
@@ -219,7 +215,7 @@ submitImpl me http stateMachines@(StateMachines sms) topic decree = do
     handle :: SequenceNum
            -> Value
            -> Either ClientError ProposeResponse
-           -> IO SubmitResult
+           -> IO SubmitResponse
 
     handle _ _ (Left e) = pure . SubmitError $ show e
 
