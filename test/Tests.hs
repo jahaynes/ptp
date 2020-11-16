@@ -5,6 +5,7 @@
 module Main where
 
 import           Client.PaxosClient
+import           Entity.Host
 import           Entity.Id
 import           Entity.Node
 import           Entity.Port
@@ -54,7 +55,7 @@ startCluster http callback =
         -- ls <- I.create myId "ls" :: IO (LocalFileStorage LearnerState)
         ls <- I.create           :: IO (InMemStorage LearnerState)
         a  <- P.create http randomPort as ls callback
-        pure (a, Node myId randomPort)
+        pure (a, Node myId localHost randomPort)
 
 main :: IO ()
 main = do
