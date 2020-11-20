@@ -13,12 +13,9 @@ import           Entity.Id
 import           Entity.Node
 import           Entity.Port
 import           Entity.Topic
-import           Entity.Uniq
 
 import           Control.Concurrent       (threadDelay)
 import           Control.Concurrent.Async (forConcurrently_)
-import           Control.Monad            (foldM_, replicateM)
-import           Data.Functor             ((<&>))
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
 import           Text.Printf              (printf)
 
@@ -32,28 +29,30 @@ main = do
 
     http <- newManager defaultManagerSettings
 
-    ids               <- replicateM 3 (uniq <&> \(Uniq u) -> Id u)  -- TODO these IDs aren't exactly used!
-    let paxosHosts     = [ host "192.168.0.24"
-                         , host "192.168.0.12"
-                         , host "192.168.0.23" ]
-        ports          = map Port . take 3 $ [8080..]
-        defaultCluster = zipWith3 Node ids paxosHosts ports                     -- TODO these IDs aren't exactly used!
+    let paxosCluster = [ Node (Id "paxos-1") localHost (Port 8080)
+                       , Node (Id "paxos-2") localHost (Port 8081)
+                       , Node (Id "paxos-3") localHost (Port 8082)
+                       ]
 
-    let submitNode1 = Node (Id "submitter-1") (host "192.168.0.12") (Port 8180)
-    let submitNode2 = Node (Id "submitter-2") (host "192.168.0.12") (Port 8181)
+    let submitterNodes = [ Node (Id "submitter-1") localHost (Port 8180)
+                         , Node (Id "submitter-2") localHost (Port 8181)
+                         ]
 
-    _ <- SN.create http submitNode1
-    _ <- SN.create http submitNode2
+    mapM_ (SN.create http) submitterNodes
 
-    forConcurrently_ [submitNode1, submitNode2] $ \subNode -> do
+    forConcurrently_ submitterNodes $ \subNode -> do
 
         -- Create topic
-        _ <- (createTopicBuilder http subNode) (CreateTopicRequest defaultCluster topic)
+        _ <- (createTopicBuilder http subNode) (CreateTopicRequest paxosCluster topic)
 
         -- Sync
         (syncBuilder http subNode) (SyncRequest topic) >>= \case
-            Left e -> printf "Could not sync.  Shutting down: %s\n" (show e)
-            Right (SyncResponse lo hi) -> printf "Synced on %s from: %s to %s\n" (show topic) (show lo) (show hi)
+
+            Left e ->
+                printf "Could not sync.  Shutting down: %s\n" (show e)
+
+            Right (SyncResponse lo hi) ->
+                printf "Synced on %s from: %s to %s\n" (show topic) (show lo) (show hi)
 
         -- Generate data
         producer http subNode
@@ -61,33 +60,41 @@ main = do
 newtype Backoff =
     Backoff Int
 
-producer :: Manager -> Node -> IO ()
-producer http sn = foldM_ f (sn, Backoff 10000, 1) [1..]
+producer :: Manager
+         -> Node
+         -> IO ()
+producer http sn = go 0 sn (Backoff 10000)
+
     where
-    f :: (Node, Backoff, Int) -> Int -> IO (Node, Backoff, Int)
-    f (subNode, Backoff bo, n) i = do
+    go :: Int
+       -> Node
+       -> Backoff
+       -> IO ()
+    go  n subNode (Backoff bo) = do
 
-        printf "Attempt %d towards %s: %d: " i (show subNode) n
-        (submitBuilder http subNode) (SubmitRequest (Topic "test") (ValueDecree $ "msg: " ++ show n)) >>= \case
+        printf "Attempt %d towards %s: %d: " n (show subNode) n
 
-            Left e -> error $ show e
+        (submitBuilder http subNode) (SubmitRequest (Topic "test") (ValueDecree $ printf "%s %d" (show $ getId subNode) n)) >>= \case
+
+            Left e ->
+                error $ "fatal: " ++ show e
 
             Right Submitted -> do
                 printf "submitted\n"
-                pure (subNode, better, n + 1)
+                go (n+1) subNode better
 
             Right RetryRequested -> do
                 printf "retry needed\n"
-                pure (subNode, better, n)
+                go n subNode better
 
             Right (OtherLeader leader) -> do
                 printf "switching leader %s -> %s\n" (show subNode) (show leader)
-                pure (leader, better, n)
+                go n leader better
 
             Right (SubmitError e) -> do
                 threadDelay bo
-                printf "%s\n" e
-                pure (subNode, worse, n)
+                printf "Submission error: %s\n" e
+                go n subNode worse
 
         where
         better :: Backoff
