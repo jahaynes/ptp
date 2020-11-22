@@ -30,6 +30,7 @@ create http node = do
         submitterRoutes = S.createTopic submitter
                      :<|> S.sync submitter
                      :<|> S.submit submitter
+                     :<|> S.getState submitter
 
     a <- async . runSettings settings $
         serve (Proxy :: Proxy SubmitterApi) submitterRoutes

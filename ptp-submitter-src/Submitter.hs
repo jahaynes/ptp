@@ -17,6 +17,7 @@ import           Entity.Uniq
 import           Entity.Value
 import           Requests.Peek
 import           Requests.Propose
+import           Requests.State
 
 import           Control.Concurrent
 import           Control.Concurrent.Async (forConcurrently_, mapConcurrently)
@@ -28,6 +29,7 @@ import qualified Data.Map as Map
 import           Data.Maybe               (mapMaybe)
 import           Data.Set                (Set)
 import qualified Data.Set as S
+import           ListT (toList)
 import           Network.HTTP.Client     (Manager)
 import           Servant.Client          (ClientError)
 import           StmContainers.Map       (Map)
@@ -39,6 +41,7 @@ data Submitter m =
     Submitter { createTopic :: !(CreateTopicRequest -> m CreateTopicResponse)
               , sync        :: !(SyncRequest        -> m SyncResponse)
               , submit      :: !(SubmitRequest      -> m SubmitResponse)
+              , getState    :: !(m StateResponse)
               }
 
 newtype StateMachines =
@@ -67,6 +70,7 @@ create me http = do
     pure $ Submitter { createTopic = liftIO . createTopicImpl stateMachines
                      , sync        = liftIO . syncImpl http stateMachines
                      , submit      = liftIO . submitImpl me http stateMachines
+                     , getState    = liftIO $ getStateImpl stateMachines
                      }
 
 syncImpl :: Manager
@@ -278,6 +282,15 @@ observe (StateMachines sms) topic seqNum (Msg u ch decree) =
                                       }
 
                 in M.insert topicState' topic sms
+
+getStateImpl :: StateMachines -> IO StateResponse
+getStateImpl (StateMachines sms) = do
+
+    x <- atomically . toList . M.listT $ sms
+
+    pure . StateResponse
+         . map (\(t, s) -> TopicState t (getHighestKnown s) (getCluster s) (getLeader s))
+         $ x
 
 same :: Eq a => [a] -> Maybe a
 same     [] = error "nothing same"

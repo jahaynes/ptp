@@ -4,6 +4,7 @@
 module SubmitterApi where
 
 import Requests.CreateTopic
+import Requests.State
 import Requests.Submit
 import Requests.Sync
 
@@ -14,3 +15,5 @@ type SubmitterApi = "submitter" :> "createTopic" :> ReqBody '[OctetStream] Creat
                :<|> "submitter" :> "sync"        :> ReqBody '[OctetStream] SyncRequest        :> Post '[OctetStream] SyncResponse
 
                :<|> "submitter" :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse
+
+               :<|> "submitter" :> "state"       :> Get '[OctetStream] StateResponse
