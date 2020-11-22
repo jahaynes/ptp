@@ -1,73 +1,61 @@
-cabal-version:       2.2
-name:                ptp
+cabal-version:       2.4
+name:                ptp-paxos
 version:             0.1.0.0
-license-file:        LICENSE
+author:              John Haynes
+maintainer:          john.andrew.haynes@gmail.com
 build-type:          Simple
-extra-source-files:  ChangeLog.md
 
-common deps
+common ptp-paxos-deps
   default-language: Haskell2010
-  build-depends:    async,
-                    base,
-                    binary,
-                    bytestring,
-                    containers,
-                    deepseq,
-                    directory,
-                    hashable,
-                    http-client,
-                    safe,
-                    safe-exceptions,
-                    serialise,
-                    servant,
-                    servant-client,
-                    servant-server,
-                    split,
-                    stm,
-                    stm-containers,
-                    transformers,
-                    uuid,
-                    warp
+  build-depends:    async, base, containers, deepseq, hashable, http-client, safe, safe-exceptions, serialise, servant, servant-client, servant-server, stm, stm-containers, transformers, uuid, warp
 
-library paxos-lib
-  import:              deps
-  ghc-options:         -Wall -O3
-  hs-source-dirs:      src-paxos
+library ptp-paxos-lib
+  import:              ptp-paxos-deps
   default-language:    Haskell2010
+  ghc-options:         -Wall -O3
+  hs-source-dirs:      ptp-paxos-src
   exposed-modules:     Client.PaxosClient
                        Entity.Host
+                       Entity.Topic
                        Entity.Id
                        Entity.Node
                        Entity.Port
-                       Entity.Proposal
                        Entity.SequenceNum
-                       Entity.Topic
                        Entity.Uniq
                        Entity.Value
-                       Requests.Accept
-                       Requests.Learn
                        Requests.Peek
-                       Requests.Prepare
                        Requests.Propose
                        Server.InMemStorage
-                       Server.LocalFileStorage
-                       Server.Locks
                        Server.Paxos.Acceptor
                        Server.Paxos.Learner
                        Server.Paxos.PaxosNode
-                       Server.Paxos.Proposer
+  other-modules:       Entity.Proposal
+                       Entity.ProposalNumber
+                       Requests.Accept
+                       Requests.Learn
+                       Requests.Prepare
+                       Server.Locks
                        Server.PaxosApi
+                       Server.Paxos.Proposer
                        Server.Storage
-  other-modules:       Entity.ProposalNumber
                        Quorum
 
-executable paxos-bin
-  import:              deps
-  ghc-options:         -Wall -O3 -threaded
-  hs-source-dirs:      src-paxos
-  main-is:             Main.hs
+test-suite ptp-paxos-test
+  import:           ptp-paxos-deps
+  ghc-options:      -Wall -O3
+  type:             exitcode-stdio-1.0
+  main-is:          Tests.hs
+  build-depends:    ptp-paxos-lib, list-t, random, split
+  hs-source-dirs:   ptp-paxos-test
+  default-language: Haskell2010
+
+executable ptp-paxos-bin
+  import:              ptp-paxos-deps
   default-language:    Haskell2010
-  build-depends:       paxos-lib
+  ghc-options:         -Wall -O3
+  main-is:             Main.hs
+  build-depends:       directory
+  hs-source-dirs:      ptp-paxos-src
   other-modules:       Client.PaxosClient
                        Entity.Host
                        Entity.Id
@@ -94,33 +82,19 @@ executable paxos-bin
                        Server.PaxosApi
                        Server.Storage
 
-test-suite test-paxos-lib
-  import:           deps
-  ghc-options:      -Wall -O3
-  type:             exitcode-stdio-1.0
-  main-is:          Tests.hs
-  build-depends:    paxos-lib, list-t, random, split
-  hs-source-dirs:   test
-  default-language: Haskell2010
-
-executable submitter
-  import:              deps
-  ghc-options:         -Wall -O3 -threaded
-  hs-source-dirs:      src-submitter
+executable ptp-submitter-bin
+  ghc-options:         -Wall -O3
   main-is:             Main.hs
-  other-modules:       Client.SubmitterClient,
-                       Entity.ClusterHash,
-                       Entity.Decree,
-                       Entity.Msg,
-                       Requests.CreateTopic
-                       Requests.Submit,
-                       Requests.Sync,
-                       Submitter,
-                       SubmitterNode,
-                       SubmitterApi,
-                       Journal,
-                       PubSub
+  build-depends:       ptp-paxos-lib, async, base, hashable, http-client, containers, random, serialise, servant, servant-client, servant-server, stm, stm-containers, warp
   default-language:    Haskell2010
-  build-depends:       paxos-lib,
-                       list-t,
-                       random
+  hs-source-dirs:      ptp-submitter-src
+  other-modules:       Client.SubmitterClient
+                       Entity.ClusterHash
+                       Entity.Decree
+                       Entity.Msg
+                       Requests.CreateTopic
+                       Requests.Submit
+                       Requests.Sync
+                       Submitter
+                       SubmitterApi
+                       SubmitterNode
