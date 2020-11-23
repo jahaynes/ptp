@@ -71,7 +71,8 @@ producer http sn = go 0 sn (Backoff 10000)
        -> Backoff
        -> IO ()
     go  n subNode (Backoff bo) = do
-
+    
+        threadDelay 1000000
         printf "Attempt %d towards %s: %d: " n (show subNode) n
 
         (submitBuilder http subNode) (SubmitRequest (Topic "test") (ValueDecree $ printf "%s %d" (show $ getId subNode) n)) >>= \case

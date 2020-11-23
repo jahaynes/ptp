@@ -21,6 +21,8 @@ import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as L8
 import           Network.HTTP.Client              (Manager, defaultManagerSettings, newManager)
 
+import Graphics.Vty.Input.Events
+import Graphics.Vty.Attributes
 
 bothWindows :: Widget ()
 bothWindows = withBorderStyle unicode
@@ -46,14 +48,60 @@ instance ToJSON TopicState
 main :: IO ()
 main = do
 
-    let app = App { }
-        initialState = undefined
+    let app = App { appDraw         = draw
+                  , appChooseCursor = chooseCursor
+                  , appHandleEvent  = handleEvent
+                  , appStartEvent   = startEvent
+                  , appAttrMap      = attrs
+                  }
+                  
+        initialState = AppState 0
   
-    -- finalState <- defaultMain app initialState
-  
-    pure ()
-    -- Use finalState and exit
+    finalState <- defaultMain app initialState
 
+    pure ()
+
+data Tick = Tick deriving Show
+
+data Name = Name
+    deriving (Eq, Ord, Show)
+
+step (AppState n) = (AppState $ n +1 )
+
+data AppState = AppState !Int
+
+draw :: AppState -> [Widget Name]
+draw appState = [foo appState]
+
+chooseCursor :: s -> [CursorLocation Name] -> Maybe (CursorLocation Name)
+chooseCursor _ _ = Nothing
+
+handleEvent :: AppState -> BrickEvent Name Tick -> EventM Name (Next AppState)
+handleEvent g (AppEvent Tick) = continue $ step g
+handleEvent g (VtyEvent (EvResize _ _)) = continue $ step g
+handleEvent g (VtyEvent (EvKey _ [])) = continue $ step g
+
+handleEvent g (VtyEvent (EvKey (KChar 'c') [MCtrl])) = error "goodbye"
+
+handleEvent g x = error $ show x
+
+startEvent :: s -> EventM Name s
+startEvent = pure
+
+attrs :: s -> AttrMap
+attrs _ = attrMap boring [ ]
+
+boring =
+        Attr { attrStyle     = Default
+             , attrForeColor = Default
+             , attrBackColor = Default
+             , attrURL       = Default
+             }
+
+foo (AppState n)=
+    withBorderStyle unicode $
+      borderWithLabel (str $ "Hello " ++ show n) $
+        (center (str "Left") <+> vBorder <+> center (str "Right"))
 
 {-
     http <- newManager defaultManagerSettings
