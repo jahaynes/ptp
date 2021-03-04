@@ -12,28 +12,21 @@ import Entity.Topic
 import Requests.State
 
 import           Brick
+import           Brick.BChan (BChan, newBChan, writeBChan)
 import           Brick.Widgets.Center
 import           Brick.Widgets.Border
 import           Brick.Widgets.Border.Style
-import           Control.Concurrent               (threadDelay)
-import           Control.Monad                    (forever)
+
+import           Control.Concurrent               (forkIO, threadDelay)
+import           Control.Monad                    (forever, void)
+import           Control.Monad.IO.Class           (liftIO)
 import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as L8
 import           Network.HTTP.Client              (Manager, defaultManagerSettings, newManager)
 
+import Graphics.Vty
 import Graphics.Vty.Input.Events
 import Graphics.Vty.Attributes
-
-bothWindows :: Widget ()
-bothWindows = withBorderStyle unicode
-            . borderWithLabel (str "Hello!")
-            $ leftWindow <+> vBorder <+> rightWindow
-
-leftWindow =
-    center $ str "Left"
-
-rightWindow =
-    center $ str "Right"
 
 instance ToJSON Host
 instance ToJSON Id
@@ -48,60 +41,81 @@ instance ToJSON TopicState
 main :: IO ()
 main = do
 
-    let app = App { appDraw         = draw
-                  , appChooseCursor = chooseCursor
-                  , appHandleEvent  = handleEvent
-                  , appStartEvent   = startEvent
-                  , appAttrMap      = attrs
-                  }
-                  
-        initialState = AppState 0
-  
-    finalState <- defaultMain app initialState
+    chan <- newBChan 10
 
-    pure ()
+    let initialState = AppState { count = 0 
+                                , status = Running
+                                }
+  
+    let mkHandle = mkVty defaultConfig
+    handle <- mkHandle
+    _ <- forkIO $ timerThread chan
+    void (customMain handle mkHandle (Just chan) app initialState)
+
+    where
+    timerThread :: BChan Tick -> IO b
+    timerThread chan = forever $ do
+        threadDelay 1000000
+        writeBChan chan Tick
 
 data Tick = Tick deriving Show
 
 data Name = Name
     deriving (Eq, Ord, Show)
 
-step (AppState n) = (AppState $ n +1 )
+app :: App AppState Tick Name
+app = App { appDraw         = draw
+          , appChooseCursor = chooseCursor
+          , appHandleEvent  = handleEvent
+          , appStartEvent   = startEvent
+          , appAttrMap      = attrs
+          }
 
-data AppState = AppState !Int
+    where
+    draw :: AppState -> [Widget Name]
+    draw appState = [foo]
 
-draw :: AppState -> [Widget Name]
-draw appState = [foo appState]
+        where
+        foo =
+            withBorderStyle unicode $
+                borderWithLabel (str $ "Hello " ++ show (count appState)) $
+                    (center (str "Left") <+> vBorder <+> center (str "Right"))
 
-chooseCursor :: s -> [CursorLocation Name] -> Maybe (CursorLocation Name)
-chooseCursor _ _ = Nothing
+    chooseCursor :: s -> [CursorLocation Name] -> Maybe (CursorLocation Name)
+    chooseCursor _ _ = Nothing
 
-handleEvent :: AppState -> BrickEvent Name Tick -> EventM Name (Next AppState)
-handleEvent g (AppEvent Tick) = continue $ step g
-handleEvent g (VtyEvent (EvResize _ _)) = continue $ step g
-handleEvent g (VtyEvent (EvKey _ [])) = continue $ step g
+    handleEvent :: AppState
+                -> BrickEvent Name Tick
+                -> EventM Name (Next AppState)
+    handleEvent appState (AppEvent Tick)                        = continue $ step appState
+    handleEvent appState (VtyEvent (EvKey (KChar 'c') [MCtrl])) = halt appState
+    handleEvent appState (VtyEvent (EvResize _ _))              = continue appState
+    handleEvent appState (VtyEvent (EvKey _ []))                = continue appState
+    handleEvent        _ x = error $ show x
 
-handleEvent g (VtyEvent (EvKey (KChar 'c') [MCtrl])) = error "goodbye"
+    startEvent :: s -> EventM Name s
+    startEvent = pure
 
-handleEvent g x = error $ show x
+    attrs :: s -> AttrMap
+    attrs _ = attrMap boring [ ]
+        where
+        boring =
+            Attr { attrStyle     = Default
+                 , attrForeColor = Default
+                 , attrBackColor = Default
+                 , attrURL       = Default
+                 }
 
-startEvent :: s -> EventM Name s
-startEvent = pure
+step :: AppState -> AppState
+step appState = appState { count = count appState + 1 }
 
-attrs :: s -> AttrMap
-attrs _ = attrMap boring [ ]
-
-boring =
-        Attr { attrStyle     = Default
-             , attrForeColor = Default
-             , attrBackColor = Default
-             , attrURL       = Default
+data AppState =
+    AppState { count  :: !Int
+             , status :: !Status
              }
 
-foo (AppState n)=
-    withBorderStyle unicode $
-      borderWithLabel (str $ "Hello " ++ show n) $
-        (center (str "Left") <+> vBorder <+> center (str "Right"))
+data Status = Running
+            | Exiting
 
 {-
     http <- newManager defaultManagerSettings
