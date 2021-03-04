@@ -16,4 +16,4 @@ type SubmitterApi = "submitter" :> "createTopic" :> ReqBody '[OctetStream] Creat
 
                :<|> "submitter" :> "submit"      :> ReqBody '[OctetStream] SubmitRequest      :> Post '[OctetStream] SubmitResponse
 
-               :<|> "submitter" :> "state"       :> Get '[OctetStream] StateResponse
+               :<|> "submitter" :> "state"       :> Get '[JSON] StateResponse
