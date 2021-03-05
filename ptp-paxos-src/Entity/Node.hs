@@ -8,6 +8,7 @@ import Entity.Id
 import Entity.Port
 
 import Codec.Serialise (Serialise)
+import Data.Aeson      (FromJSON, ToJSON)
 import Data.Hashable   (Hashable)
 import GHC.Generics    (Generic)
 
@@ -15,4 +16,4 @@ data Node =
     Node { getId   :: !Id
          , getHost :: !Host
          , getPort :: !Port
-         } deriving (Eq, Read, Show, Ord, Generic, Serialise, Hashable)
+         } deriving (Eq, Read, Show, Ord, Generic, Serialise, Hashable, FromJSON, ToJSON)
