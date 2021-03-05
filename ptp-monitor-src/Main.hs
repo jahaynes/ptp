@@ -28,14 +28,6 @@ import Graphics.Vty
 import Graphics.Vty.Input.Events
 import Graphics.Vty.Attributes
 
-instance ToJSON Host
-instance ToJSON Id
-instance ToJSON Node
-instance ToJSON Port
-instance ToJSON SequenceNum
-instance ToJSON Topic
-instance ToJSON TopicState
-
 -- https://github.com/jtdaugherty/brick/blob/master/docs/guide.rst
 
 main :: IO ()
