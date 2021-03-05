@@ -16,23 +16,37 @@ import           Entity.Topic
 
 import           Control.Concurrent       (threadDelay)
 import           Control.Concurrent.Async (forConcurrently_)
+import           Data.List.Split          (splitOn)
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
+import           System.Environment       (getArgs)
+import           System.IO                (BufferMode (LineBuffering), hSetBuffering, stdout)
 import           Text.Printf              (printf)
 
 topic :: Topic
 topic = Topic "test"
 
+getPaxosCluser :: IO [Node]
+getPaxosCluser =
+    getArgs >>= \case
+        []    -> error "No paxos nodes supplied. Format is hostname1:port1 hostname2:port2"
+        nodes -> pure $ map parseNode nodes
+    where
+    parseNode :: String -> Node
+    parseNode strNode =
+        case splitOn ":" strNode of
+            [h, p] -> let p' = read p in Node (Id (printf "%s:%d" h p')) (host h) (Port p')
+            _      -> error $ printf "invalid paxos node %s" strNode
+
 main :: IO ()
 main = do
 
-    putStrLn "\n-------------------------\n"
+    hSetBuffering stdout LineBuffering
+
+    printf "Submitter node started\n"
+    paxosCluster <- getPaxosCluser
+    printf "Connecting to %s\n" (show paxosCluster)
 
     http <- newManager defaultManagerSettings
-
-    let paxosCluster = [ Node (Id "paxos-1") localHost (Port 8080)
-                       , Node (Id "paxos-2") localHost (Port 8081)
-                       , Node (Id "paxos-3") localHost (Port 8082)
-                       ]
 
     let submitterNodes = [ Node (Id "submitter-1") localHost (Port 8180)
                          , Node (Id "submitter-2") localHost (Port 8181)

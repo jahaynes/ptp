@@ -15,7 +15,7 @@ import qualified Server.Paxos.PaxosNode  as P
 import           Control.Concurrent.Async (wait)
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
 import           System.Environment       (getArgs)
-import           System.IO                (BufferMode (..), hSetBuffering, stdout)
+import           System.IO                (BufferMode (LineBuffering), hSetBuffering, stdout)
 import           Text.Printf              (printf)
 
 main :: IO ()
@@ -28,6 +28,7 @@ main = do
         [myId, strPort] -> do
             let port = read strPort
             http <- newManager defaultManagerSettings
+            printf "Paxos node started (%s %d)\n" myId port
             createPaxosNode http (Id myId) (Port port) $ \t s v ->
                 printf "%s/%s -> %s\n" (show t) (show s) (show v)
 
