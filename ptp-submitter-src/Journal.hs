@@ -40,10 +40,10 @@ data Index = -- Can't use Serial here - need fixed width for O(1) access
 create :: (Serialise v, NFData v) => Id
                                   -> IO (Journal v)
 create ident =
-    pure $ Journal { readEntries  = readEntriesImpl  ident
-                   , writeEntries = writeEntriesImpl ident
-                   , dumpJournal  = dumpJournalImpl  ident
-                   }
+    pure Journal { readEntries  = readEntriesImpl  ident
+                 , writeEntries = writeEntriesImpl ident
+                 , dumpJournal  = dumpJournalImpl  ident
+                 }
 
 readEntriesImpl :: (Serialise v, NFData v) => Id
                                            -> Locked Topic

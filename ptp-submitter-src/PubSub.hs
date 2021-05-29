@@ -31,9 +31,9 @@ create = do
 
     topicStates <- TopicStates <$> M.newIO
 
-    pure $ PubSub { notify = notifyImpl topicStates
-                  , poll   = pollImpl topicStates
-                  }
+    pure PubSub { notify = notifyImpl topicStates
+                , poll   = pollImpl topicStates
+                }
 
 notifyImpl :: TopicStates
            -> Topic

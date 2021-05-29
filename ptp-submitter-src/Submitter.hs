@@ -67,11 +67,11 @@ createTopicImpl (StateMachines m) (CreateTopicRequest nodes topic) = do
 create :: MonadIO m => Node -> Manager -> IO (Submitter m)
 create me http = do
     stateMachines <- StateMachines <$> M.newIO
-    pure $ Submitter { createTopic = liftIO . createTopicImpl stateMachines
-                     , sync        = liftIO . syncImpl http stateMachines
-                     , submit      = liftIO . submitImpl me http stateMachines
-                     , getState    = liftIO $ getStateImpl stateMachines
-                     }
+    pure Submitter { createTopic = liftIO . createTopicImpl stateMachines
+                   , sync        = liftIO . syncImpl http stateMachines
+                   , submit      = liftIO . submitImpl me http stateMachines
+                   , getState    = liftIO $ getStateImpl stateMachines
+                   }
 
 syncImpl :: Manager
          -> StateMachines
