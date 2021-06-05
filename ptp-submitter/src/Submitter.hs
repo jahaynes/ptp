@@ -79,6 +79,8 @@ syncImpl :: Manager
          -> IO SyncResponse
 syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
 
+    printf "Syncing...\n"
+
     -- Get the state machine state
     Just (StateMachine _ cluster _) <- atomically $ M.lookup topic sms
 

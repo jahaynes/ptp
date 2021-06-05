@@ -1,0 +1,26 @@
+cabal-version:       2.4
+
+name:                ptp-store
+version:             0.1.0.0
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              John Haynes
+maintainer:          john.andrew.haynes@gmail.com
+extra-source-files:  CHANGELOG.md
+
+library
+  ghc-options:         -Wall -O3
+  exposed-modules:     HashMapStorage
+                       SqliteStorage
+                       Storage
+  -- other-modules:
+  build-depends:       base, rio, sqlite-simple, unliftio-core
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
+test-suite ptp-store-test
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             MyLibTest.hs
+  build-depends:       base

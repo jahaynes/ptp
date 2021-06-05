@@ -49,7 +49,7 @@ main = do
     http <- newManager defaultManagerSettings
 
     let submitterNodes = [ Node (Id "submitter-1") localHost (Port 8180)
-                         , Node (Id "submitter-2") localHost (Port 8181)
+                       --  , Node (Id "submitter-2") localHost (Port 8181)
                          ]
 
     mapM_ (SN.create http) submitterNodes
@@ -57,6 +57,7 @@ main = do
     forConcurrently_ submitterNodes $ \subNode -> do
 
         -- Create topic
+        printf "Creating topic %s\n" (show topic)
         _ <- (createTopicBuilder http subNode) (CreateTopicRequest paxosCluster topic)
 
         -- Sync
@@ -85,8 +86,9 @@ producer http sn = go 0 sn (Backoff 10000)
        -> Backoff
        -> IO ()
     go  n subNode (Backoff bo) = do
-    
-        threadDelay 1000000
+
+        -- threadDelay 1000000
+
         printf "Attempt %d towards %s: %d: " n (show subNode) n
 
         (submitBuilder http subNode) (SubmitRequest (Topic "test") (ValueDecree $ printf "%s %d" (show $ getId subNode) n)) >>= \case

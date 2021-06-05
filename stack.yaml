@@ -1,0 +1,12 @@
+resolver: lts-17.13
+
+packages:
+- ptp-monitor
+- ptp-paxos
+- ptp-store
+- ptp-submitter
+
+local-bin-path: ./bin
+
+ghc-options:
+ "$locals": -fwrite-ide-info

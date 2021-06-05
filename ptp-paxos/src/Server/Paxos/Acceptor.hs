@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass,
              DeriveGeneric,
              FlexibleContexts,
+             FlexibleInstances,     -- TODO get rid of while unorphaning key (topic,seqnum)
              LambdaCase        #-}
 
 module Server.Paxos.Acceptor ( Acceptor (..)
@@ -19,16 +20,16 @@ import           Entity.Value
 import           Requests.Accept
 import           Requests.Prepare
 import           Requests.Learn
+import           Storage
 import           Server.Locks
-import           Server.Storage         (Storage)
-import qualified Server.Storage as S
 
-import           Codec.Serialise            (Serialise)
+import           Codec.Serialise            (Serialise, deserialise, serialise)
 import           Control.Concurrent.Async   (forConcurrently)
 import           Control.DeepSeq            (NFData)
 import           Control.Exception          (SomeException)
 import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Control.Monad.Trans.Except (ExceptT, runExceptT)
+import           Data.ByteString.Lazy       (fromStrict, toStrict)
 import           GHC.Generics               (Generic)
 import           Data.Either                (rights)
 import           Data.Functor               ((<&>))
@@ -46,23 +47,39 @@ data AcceptorState =
                   , acc_proposal    :: !(Maybe Proposal)
                   } deriving (Generic, NFData, Serialise)
 
-create :: (Storage s AcceptorState, MonadIO m, Show e) => Id
-                                         -> s
-                                         -> (Node -> LearnClient e)
-                                         -> IO (Acceptor m)
-create myId storage learnBuilder = do
+--todo dedupe
+newtype Locked2 a =
+    Locked2 a
+
+instance Lock (Locked2 a)
+
+-- dedupe
+-- TODO use a builder / make human readable?
+instance Key (Topic, SequenceNum) where
+    toKeyBytes (Topic topic, SequenceNum sn) =
+        toStrict . serialise $ (topic, sn)
+
+instance StoreValue AcceptorState where
+    toValBytes = toStrict . serialise
+    fromValBytes = deserialise . fromStrict
+
+create :: (MonadIO m, Show e, LockedStorage s) => Id
+                                               -> s
+                                               -> (Node -> LearnClient e)
+                                               -> IO (Acceptor m)
+create myId store learnBuilder = do
 
     topicLocks <- newLocks
 
-    pure $ Acceptor { prepare = liftIO . prepareService storage topicLocks
-                    , accept  = liftIO . acceptService myId storage topicLocks learnBuilder
+    pure $ Acceptor { prepare = liftIO . prepareService store topicLocks
+                    , accept  = liftIO . acceptService myId store topicLocks learnBuilder
                     }
 
-prepareService :: Storage s AcceptorState => s
-                            -> Locks (Topic, SequenceNum)
-                            -> PrepareRequest
-                            -> IO PrepareResponse
-prepareService storage topicLocks (PrepareRequest topic seqNum n) =
+prepareService :: LockedStorage s => s 
+                                  -> Locks (Topic, SequenceNum)
+                                  -> PrepareRequest
+                                  -> IO PrepareResponse
+prepareService store topicLocks (PrepareRequest topic seqNum n) =
     runExceptT runPrepare <&> \case
         Left ioex -> PrepareResponseError $ printf "Prepare failed: " (show ioex)
         Right enp -> PrepareResponse enp
@@ -71,20 +88,20 @@ prepareService storage topicLocks (PrepareRequest topic seqNum n) =
     runPrepare :: ExceptT SomeException IO (Either Nack Promise)
     runPrepare =
         withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
-            state <- getAcceptorSubState storage lockedTopic
+            state <- getAcceptorSubState store lockedTopic
             if Just n > acc_notLessThan state
                 then do
-                    S.writeTopicSequence storage lockedTopic $! state {acc_notLessThan = Just n}
+                    writeStoreL (Locked2 lockedTopic) store (topic, seqNum) $! state {acc_notLessThan = Just n}
                     right $ Promise n (acc_proposal state)
                 else left . Nack . fromJust . acc_notLessThan $ state
 
-acceptService :: (Storage s AcceptorState, Show e) => Id
-                                                   -> s
-                                                   -> Locks (Topic, SequenceNum)
-                                                   -> (Node -> LearnClient e)
-                                                   -> AcceptRequest
-                                                   -> IO AcceptResponse
-acceptService myId storage topicLocks learnBuilder (AcceptRequest nodes topic seqNum n v) =
+acceptService :: (Show e, LockedStorage s) => Id
+                                           -> s
+                                           -> Locks (Topic, SequenceNum)
+                                           -> (Node -> LearnClient e)
+                                           -> AcceptRequest
+                                           -> IO AcceptResponse
+acceptService myId store topicLocks learnBuilder (AcceptRequest nodes topic seqNum n v) =
     runExceptT runAccept <&> \case
         Left ioex -> AcceptResponseError $ printf "Accept failed: " (show ioex)
         Right esv -> AcceptResponse esv
@@ -93,11 +110,11 @@ acceptService myId storage topicLocks learnBuilder (AcceptRequest nodes topic se
     runAccept :: ExceptT SomeException IO (Either String Value)
     runAccept = do
         accepted <- withLocked topicLocks (topic, seqNum) $ \lockedTopic -> do
-            state <- getAcceptorSubState storage lockedTopic
+            state <- getAcceptorSubState store lockedTopic
             if Just n >= acc_notLessThan state
                 then do
-                    S.writeTopicSequence storage lockedTopic $ state { acc_notLessThan = Just n
-                                                                     , acc_proposal    = Just (Proposal n v) }
+                    writeStoreL (Locked2 lockedTopic) store (topic, seqNum) $! state { acc_notLessThan = Just n
+                                                                                     , acc_proposal    = Just (Proposal n v) }
                     pure True
                 else pure False
 
@@ -124,11 +141,11 @@ acceptService myId storage topicLocks learnBuilder (AcceptRequest nodes topic se
 
             else left "acceptService: Not accepted"
 
-getAcceptorSubState :: Storage s AcceptorState => s
-                                               -> Locked (Topic, SequenceNum)
-                                               -> ExceptT SomeException IO AcceptorState
-getAcceptorSubState storage locked =
-    S.readTopicSequence storage locked <&> \case
+getAcceptorSubState :: LockedStorage s => s
+                                       -> Locked (Topic, SequenceNum)
+                                       -> ExceptT SomeException IO AcceptorState
+getAcceptorSubState store (Locked (topic, seqNum)) =
+    readStoreL (Locked2 (topic, seqNum)) store (topic, seqNum) <&> \case
         Just f  -> f
         Nothing -> AcceptorState Nothing Nothing
 

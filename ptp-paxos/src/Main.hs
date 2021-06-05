@@ -7,9 +7,6 @@ import           Entity.Port
 import           Entity.SequenceNum
 import           Entity.Topic
 import           Entity.Value
-import           Server.LocalFileStorage as F
-import           Server.Paxos.Acceptor        (AcceptorState)
-import           Server.Paxos.Learner         (LearnerState)
 import qualified Server.Paxos.PaxosNode  as P
 
 import           Control.Concurrent.Async (wait)
@@ -17,6 +14,11 @@ import           Network.HTTP.Client      (Manager, defaultManagerSettings, newM
 import           System.Environment       (getArgs)
 import           System.IO                (BufferMode (LineBuffering), hSetBuffering, stdout)
 import           Text.Printf              (printf)
+
+--import qualified Storage as SS
+import qualified HashMapStorage as HMS
+import qualified SqliteStorage as SS
+
 
 main :: IO ()
 main = do
@@ -39,7 +41,8 @@ createPaxosNode :: Manager
                 -> Port
                 -> (Topic -> SequenceNum -> Value -> IO ())
                 -> IO ()
-createPaxosNode http myId port callback = do
-    as <- F.create myId "as" :: IO (LocalFileStorage AcceptorState)
-    ls <- F.create myId "ls" :: IO (LocalFileStorage LearnerState)
+createPaxosNode http myId@(Id i) port callback = do
+    -- ls <- F.create myId "ls" :: IO (LocalFileStorage LearnerState)
+    ls <- SS.create $ i <> "learner"
+    as <- SS.create $ i <> "acceptor" -- HMS.create
     wait =<< P.create http port as ls callback

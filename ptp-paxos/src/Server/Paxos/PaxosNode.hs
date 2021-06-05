@@ -9,11 +9,10 @@ import           Entity.SequenceNum          (SequenceNum (..))
 import           Entity.Topic                (Topic (..))
 import           Entity.Uniq                 (Uniq (..), uniq)
 import           Entity.Value                (Value (..))
-import qualified Server.Paxos.Acceptor  as A (Acceptor (..), AcceptorState, create)
-import qualified Server.Paxos.Learner   as L (Learner (..), LearnerState, create)
+import qualified Server.Paxos.Acceptor  as A (Acceptor (..), create)
+import qualified Server.Paxos.Learner   as L (Learner (..), create)
 import qualified Server.Paxos.Proposer  as P (Proposer (..), create)
 import           Server.PaxosApi             (PaxosApi)
-import           Server.Storage              (Storage)
 
 import           Control.Concurrent         (newEmptyMVar, putMVar, takeMVar)
 import           Control.Concurrent.Async   (Async, async)
@@ -21,13 +20,15 @@ import           Network.HTTP.Client        (Manager)
 import           Network.Wai.Handler.Warp   (runSettings, setBeforeMainLoop, setPort, defaultSettings)
 import           Servant
 
-create :: ( Storage sa A.AcceptorState,
-            Storage sl L.LearnerState) => Manager
-                                       -> Port
-                                       -> sa
-                                       -> sl
-                                       -> (Topic -> SequenceNum -> Value -> IO ())
-                                       -> IO (Async ())
+import qualified Storage as SS
+
+create :: ( SS.LockedStorage sl,
+            SS.LockedStorage sa) => Manager
+                           -> Port
+                           -> sa
+                           -> sl
+                           -> (Topic -> SequenceNum -> Value -> IO ())
+                           -> IO (Async ())
 create http (Port port) acceptorStorage learnerStorage learnedCallback = do
 
     Uniq u <- uniq

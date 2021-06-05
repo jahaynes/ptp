@@ -31,6 +31,8 @@ import qualified StmContainers.Map as M
 import           System.Random            (randomRIO)
 import           System.Timeout           (timeout)
 
+import qualified HashMapStorage as HMS
+
 data Cluster =
     Cluster { jobs  :: ![Async ()]
             , nodes :: ![Node]
@@ -51,9 +53,11 @@ startCluster http callback =
         let myId = Id u
         randomPort <- Port <$> randomRIO (20000, 30000)
         -- as <- I.create myId "as" :: IO (LocalFileStorage AcceptorState)
-        as <- I.create           :: IO (InMemStorage AcceptorState)
+        --as <- I.create           :: IO (InMemStorage AcceptorState)
         -- ls <- I.create myId "ls" :: IO (LocalFileStorage LearnerState)
-        ls <- I.create           :: IO (InMemStorage LearnerState)
+        --ls <- I.create           :: IO (InMemStorage LearnerState)
+        ls <- HMS.create
+        as <- HMS.create
         a  <- P.create http randomPort as ls callback
         pure (a, Node myId localHost randomPort)
 

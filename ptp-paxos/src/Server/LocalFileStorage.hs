@@ -1,6 +1,9 @@
-{-# LANGUAGE FlexibleInstances, InstanceSigs, LambdaCase, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, 
+             InstanceSigs,
+             LambdaCase,
+             MultiParamTypeClasses #-}
 
-module Server.LocalFileStorage where
+module Server.LocalFileStorage (LocalFileStorage, create) where
 
 import Entity.Id
 import Entity.SequenceNum
@@ -37,7 +40,7 @@ instance (Serialise a, NFData a) => Storage (LocalFileStorage a) a where
                 False -> pure Nothing
                 True  -> readFileDeserialise path <&> \x -> x `deepseq` Just x
         handler ex = do
-            liftIO $ printf "%s readTopicSequenceImpl\n" fileExt
+            liftIO $ printf "failed to readTopicSequenceImpl: %s %s %s: %s\nYou may want to manually delete this file\n" (show topic) (show seqNum) fileExt (show ex)
             throwE ex
 
     writeTopicSequence :: LocalFileStorage a
@@ -49,9 +52,10 @@ instance (Serialise a, NFData a) => Storage (LocalFileStorage a) a where
         where
         action = do
             createDirectoryIfMissing True (getTopicDir ident topic)
+            -- TODO: write to temp directory and then move into place?
             writeFileSerialise (getTopicSeqNoFile ident topic seqNum fileExt) x
         handler ex = do
-            liftIO $ printf "%s writeTopicSequenceImpl\n" fileExt
+            liftIO $ printf "failed to writeTopicSequenceImpl: %s %s %s: %s\n" (show topic) (show seqNum) fileExt (show ex)
             throwE ex
 
 create :: Id -> String -> IO (LocalFileStorage a)

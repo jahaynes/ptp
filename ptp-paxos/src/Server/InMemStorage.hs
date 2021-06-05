@@ -25,7 +25,7 @@ create :: IO (InMemStorage a)
 create = InMemStorage <$> newIORef M.empty
 
 instance Storage (InMemStorage a) a where
-
+    
     readTopicSequence :: InMemStorage a
                       -> Locked (Topic, SequenceNum)
                       -> ExceptT SomeException IO (Maybe a)
