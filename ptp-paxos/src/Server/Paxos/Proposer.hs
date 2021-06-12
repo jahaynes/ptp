@@ -16,16 +16,8 @@ import Requests.Accept
 import Requests.Prepare
 import Requests.Propose
 
-import           Control.Concurrent.Async (mapConcurrently)
-import           Control.Monad.IO.Class   (MonadIO, liftIO)
-import           Data.Either              (rights)
-import           Data.Functor             ((<&>))
 import           Data.List                (maximumBy)
-import           Data.Maybe               (fromMaybe, mapMaybe)
-import           Data.Ord                 (comparing)
-import           Data.Set                 (Set)
-import qualified Data.Set as S
-import           Data.Word                (Word64)
+import           RIO
 import           Safe                     (headMay)
 
 newtype Proposer m =
@@ -97,7 +89,7 @@ doPrepares :: Show e => Set Node
                      -> IO (Either [PrepareFail String] [(Node, Promise)])
 doPrepares nodes topic seqNum n prepareBuilder =
 
-    asyncMajority (doPrepare <$> S.toList nodes)
+    asyncMajority (doPrepare <$> toList nodes)
 
     where
     doPrepare :: Node -> IO (Either (PrepareFail String) (Node, Promise))

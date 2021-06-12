@@ -9,8 +9,7 @@ module Entity.Host ( Host
 
 import Codec.Serialise (Serialise)
 import Data.Aeson      (FromJSON, ToJSON)
-import Data.Hashable   (Hashable)
-import GHC.Generics    (Generic)
+import RIO
 
 newtype Host =
     Host String

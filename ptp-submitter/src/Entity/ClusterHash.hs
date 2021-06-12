@@ -3,7 +3,7 @@ module Entity.ClusterHash where
 import Entity.Node
 
 import Data.Hashable (hash)
-import Data.Set      (Set, toAscList)
+import RIO.Set
 
 newtype ClusterHash =
     ClusterHash Int

@@ -10,8 +10,7 @@ import Entity.Topic       (Topic)
 import Entity.Value       (Value)
 
 import Codec.Serialise (Serialise, serialise, deserialise)
-import Data.Set        (Set)
-import GHC.Generics    (Generic)
+import RIO
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
 data ProposeRequest =

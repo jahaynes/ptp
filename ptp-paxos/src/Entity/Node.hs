@@ -9,8 +9,7 @@ import Entity.Port
 
 import Codec.Serialise (Serialise)
 import Data.Aeson      (FromJSON, ToJSON)
-import Data.Hashable   (Hashable)
-import GHC.Generics    (Generic)
+import RIO
 
 data Node =
     Node { getId   :: !Id

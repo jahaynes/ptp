@@ -19,18 +19,13 @@ import           Requests.Peek
 import           Requests.Propose
 import           Requests.State
 
-import           Control.Concurrent
-import           Control.Concurrent.Async (forConcurrently_, mapConcurrently)
 import           Control.Concurrent.STM
-import           Control.Monad           (forM_)
-import           Control.Monad.IO.Class  (MonadIO, liftIO)
-import           Data.Functor            ((<&>))
-import qualified Data.Map as Map
-import           Data.Maybe               (mapMaybe)
-import           Data.Set                (Set)
-import qualified Data.Set as S
-import           ListT (toList)
+import           ListT                   (toList)
 import           Network.HTTP.Client     (Manager)
+import           RIO hiding (Map, atomically, toList)
+import qualified RIO.Map as Map
+import           RIO.Set                 (Set)
+import qualified RIO.Set as S
 import           Servant.Client          (ClientError)
 import           StmContainers.Map       (Map)
 import qualified StmContainers.Map as M
@@ -162,6 +157,7 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
                             . fmap (const 1 <$>)
                             $ msvs
 
+            -- TODO: This parallelism can break the sqlite implementation.. why?
             forConcurrently_ missingKeys $ \key -> do
 
                 let Just val = Map.lookup key superMap

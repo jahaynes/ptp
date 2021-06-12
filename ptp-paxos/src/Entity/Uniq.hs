@@ -4,9 +4,8 @@
 module Entity.Uniq where
 
 import Codec.Serialise (Serialise)
-import Control.DeepSeq (NFData)
 import Data.UUID.V4    (nextRandom)
-import GHC.Generics    (Generic)
+import RIO
 
 newtype Uniq =
     Uniq String

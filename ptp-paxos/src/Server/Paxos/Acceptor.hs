@@ -24,17 +24,11 @@ import           Storage
 import           Server.Locks
 
 import           Codec.Serialise            (Serialise, deserialise, serialise)
-import           Control.Concurrent.Async   (forConcurrently)
-import           Control.DeepSeq            (NFData)
-import           Control.Exception          (SomeException)
-import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Control.Monad.Trans.Except (ExceptT, runExceptT)
-import           Data.ByteString.Lazy       (fromStrict, toStrict)
-import           GHC.Generics               (Generic)
-import           Data.Either                (rights)
-import           Data.Functor               ((<&>))
-import           Data.Maybe                 (catMaybes, fromJust)
-import qualified Data.Set as S
+import           Data.Maybe                 (fromJust)
+import           RIO
+import           RIO.ByteString.Lazy        (fromStrict, toStrict)
+import qualified RIO.Set as S
 import           Text.Printf                (printf)
 
 data Acceptor m =

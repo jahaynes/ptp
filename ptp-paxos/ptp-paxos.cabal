@@ -10,7 +10,7 @@ extra-source-files:  CHANGELOG.md
 
 common ptp-paxos-deps
   default-language: Haskell2010
-  build-depends:    aeson, async, base, bytestring, containers, deepseq, directory, hashable, http-client, ptp-store, safe, safe-exceptions, serialise, servant, servant-client, servant-server, stm, stm-containers, transformers, uuid, warp
+  build-depends:    aeson, base, http-client, ptp-store, rio, safe, safe-exceptions, serialise, servant, servant-client, servant-server, stm, stm-containers, transformers, uuid, warp
 
 library
   import:              ptp-paxos-deps
@@ -25,7 +25,6 @@ library
                        Entity.Value
                        Requests.Peek
                        Requests.Propose
-                       Server.InMemStorage
                        Server.Paxos.Acceptor
                        Server.Paxos.Learner
                        Server.Paxos.PaxosNode
@@ -74,6 +73,7 @@ executable ptp-paxos
 
 test-suite ptp-paxos-test
   import:              ptp-paxos-deps
+  ghc-options:         -Wall -O3 -threaded
   build-depends:       list-t, ptp-paxos, random, split
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test

@@ -7,18 +7,13 @@ import           Entity.Port
 import           Entity.SequenceNum
 import           Entity.Topic
 import           Entity.Value
-import qualified Server.Paxos.PaxosNode  as P
-
-import           Control.Concurrent.Async (wait)
-import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
-import           System.Environment       (getArgs)
-import           System.IO                (BufferMode (LineBuffering), hSetBuffering, stdout)
-import           Text.Printf              (printf)
-
---import qualified Storage as SS
-import qualified HashMapStorage as HMS
+import qualified Server.Paxos.PaxosNode as P
 import qualified SqliteStorage as SS
 
+import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
+import           RIO
+import           System.Environment       (getArgs)
+import           Text.Printf              (printf)
 
 main :: IO ()
 main = do

@@ -1,8 +1,8 @@
 module Quorum where
 
-import Control.Concurrent.Async (async)
 import Control.Concurrent.STM   (atomically, modifyTVar', newTVarIO, readTVar, retry)
 import Control.Monad            (forM_)
+import RIO                      (async)
 
 newtype Threshold = Threshold Int
 

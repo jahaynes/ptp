@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, InstanceSigs #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module SqliteStorage ( SqliteStorage
                      , create
@@ -6,19 +6,20 @@ module SqliteStorage ( SqliteStorage
 
 import Storage
 
-import           Control.Monad.IO.Class (liftIO)
-import           Database.SQLite.Simple     
-import           Database.SQLite.Simple.FromRow
-import           Database.SQLite.Simple.ToField
+import Control.Concurrent.STM
+import Database.SQLite.Simple
+import Database.SQLite.Simple.ToField
+import RIO hiding (atomically, newTVarIO)
 
+data SqliteStorage =
+    SqliteStorage { conn  :: !Connection
+                  , state :: !(TVar SqliteState)
+                  }
 
-import           RIO
-import           RIO.ByteString             (intercalate)
-import qualified RIO.HashMap as HM
-import           RIO.List                   (sort)
-
-newtype SqliteStorage =
-    SqliteStorage Connection
+data SqliteState =
+    SqliteState { locked    :: !Bool
+                , remaining :: !Int
+                }
 
 newtype SqlVal =
     SqlVal ByteString
@@ -35,11 +36,19 @@ instance ToField SqlKey where
 instance ToField SqlVal where
     toField (SqlVal v) = toField v
 
+insertionsPerTransaction :: Int
+insertionsPerTransaction = 10
+
 create :: String -> IO SqliteStorage
 create name = do
-    conn <- open $ name <> ".db"
+    conn      <- open $ name <> ".db"
     execute_ conn "CREATE TABLE IF NOT EXISTS store (key BLOB PRIMARY KEY, val BLOB)"
-    pure $ SqliteStorage conn
+    execute_ conn "BEGIN TRANSACTION"
+    state <- newTVarIO $
+        SqliteState { locked    = False
+                    , remaining = 0
+                    }
+    pure $ SqliteStorage conn state
 
 instance Storage SqliteStorage where
     readStore  = readStoreImpl
@@ -47,9 +56,8 @@ instance Storage SqliteStorage where
 
 readStoreImpl :: (MonadIO m, MonadThrow m, Key k, StoreValue v, NFData v)
               => SqliteStorage -> k -> m (Maybe v)
-readStoreImpl (SqliteStorage conn) key = do
-
-    vs <- liftIO $ query conn
+readStoreImpl sqliteStorage key = do
+    vs <- liftIO $ query (conn sqliteStorage)
         " SELECT val from store \
         \ WHERE key = ?;        "
           (Only . SqlKey . toKeyBytes $ key)
@@ -60,12 +68,29 @@ readStoreImpl (SqliteStorage conn) key = do
 
 writeStoreImpl :: (MonadIO m, Key k, StoreValue v)
                => SqliteStorage -> k -> v -> m ()
-writeStoreImpl (SqliteStorage conn) key val = do
+writeStoreImpl sqliteStorage key val = liftIO $ do
     let k = toKeyBytes key
         v = toValBytes val
-    liftIO $ execute conn " INSERT OR REPLACE INTO store (key, val) \
-                          \ VALUES                       (  ?,   ?) "
-        (SqlKey k, SqlVal v)
+
+    r <- atomically $ do
+        SqliteState l r <- readTVar (state sqliteStorage)
+        if l
+            then retry
+            else do
+                let r' = if r < 1 then insertionsPerTransaction else r - 1
+                writeTVar (state sqliteStorage) (SqliteState True r')
+                pure r
+
+    when (r == 0) $ do
+        execute_ (conn sqliteStorage) "COMMIT TRANSACTION"
+        execute_ (conn sqliteStorage) "BEGIN TRANSACTION"
+
+    execute (conn sqliteStorage)
+        " INSERT OR REPLACE INTO store (key, val) \
+        \ VALUES                       (  ?,   ?) "
+            (SqlKey k, SqlVal v)
+
+    atomically $ writeTVar (state sqliteStorage) (SqliteState False r)
 
 instance LockedStorage SqliteStorage where
     readStoreL  = readStoreLImpl

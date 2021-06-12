@@ -1,5 +1,4 @@
-{-# LANGUAGE LambdaCase,
-             ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 
 import           Client.SubmitterClient
 import           Entity.Decree
@@ -14,12 +13,10 @@ import           Entity.Node
 import           Entity.Port
 import           Entity.Topic
 
-import           Control.Concurrent       (threadDelay)
-import           Control.Concurrent.Async (forConcurrently_)
 import           Data.List.Split          (splitOn)
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
+import           RIO
 import           System.Environment       (getArgs)
-import           System.IO                (BufferMode (LineBuffering), hSetBuffering, stdout)
 import           Text.Printf              (printf)
 
 topic :: Topic

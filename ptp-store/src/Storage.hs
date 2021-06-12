@@ -1,9 +1,6 @@
 module Storage where
 
-import Control.Monad.IO.Class     (MonadIO)
-import Control.Monad.IO.Unlift    (MonadUnliftIO)
-import RIO.ByteString             (ByteString)
-import RIO.Prelude.Types          (MonadThrow, NFData, Text)
+import RIO
 
 class Key k where
     toKeyBytes :: k -> ByteString
@@ -13,11 +10,8 @@ class StoreValue v where
     fromValBytes :: ByteString -> v
 
 class Storage s where
-    readStore  :: (MonadThrow m, MonadUnliftIO m, Key k, StoreValue v, NFData v) => s -> k -> m (Maybe v)
-    writeStore :: (MonadUnliftIO m, Key k, StoreValue v) => s -> k -> v -> m ()
-
-class ShowIO s where
-    showIO :: s -> IO ByteString
+    readStore  :: (MonadIO m, MonadThrow m, Key k, StoreValue v, NFData v) => s -> k -> m (Maybe v)
+    writeStore :: (MonadIO m, Key k, StoreValue v) => s -> k -> v -> m ()
 
 class Lock l
 

@@ -4,8 +4,7 @@
 module Entity.Value where
 
 import Codec.Serialise (Serialise)
-import Control.DeepSeq (NFData)
-import GHC.Generics    (Generic)
+import RIO
 
 newtype Value =
     Value String

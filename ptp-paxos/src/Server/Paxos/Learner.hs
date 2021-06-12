@@ -22,16 +22,11 @@ import           Server.Locks        (Locked (..), Locks, newLocks, withLocked)
 import           Storage
 
 import           Codec.Serialise            (Serialise, deserialise, serialise)
-import           Control.DeepSeq            (NFData)
-import           Control.Exception.Safe     (SomeException, catchAnyDeep)
-import           Control.Monad.IO.Class     (MonadIO, liftIO)
+import           Control.Exception.Safe     (catchAnyDeep)
 import           Control.Monad.Trans.Except (ExceptT, runExceptT, throwE)
-import           Data.ByteString.Lazy       (fromStrict, toStrict)
-import           Data.Functor               ((<&>))
-import           Data.Map.Strict            (Map)
-import qualified Data.Map.Strict as M
-import           Data.Maybe                 (catMaybes)
-import           GHC.Generics               (Generic)
+import           RIO hiding (catchAnyDeep) -- TODO resolve
+import           RIO.ByteString.Lazy        (fromStrict, toStrict)
+import qualified RIO.Map as M
 import           Text.Printf                (printf)
 
 data Learner m =

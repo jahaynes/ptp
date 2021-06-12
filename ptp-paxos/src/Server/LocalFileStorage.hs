@@ -12,13 +12,10 @@ import Server.Locks
 import Server.Storage
 
 import Codec.Serialise            (Serialise, readFileDeserialise, writeFileSerialise)
-import Control.DeepSeq            (NFData, deepseq)
-import Control.Exception          (SomeException)
 import Control.Exception.Safe     (catchAnyDeep)
-import Control.Monad.IO.Class     (liftIO)
 import Control.Monad.Trans.Except (ExceptT, throwE)
-import Data.Functor               ((<&>))
-import System.Directory           (createDirectoryIfMissing, doesFileExist)
+import RIO hiding (catchAnyDeep) -- TODO resolve
+import RIO.Directory              (createDirectoryIfMissing, doesFileExist)
 import Text.Printf                (printf)
 
 data LocalFileStorage a =

@@ -10,8 +10,7 @@ import Entity.SequenceNum    (SequenceNum)
 import Entity.Topic          (Topic)
 
 import Codec.Serialise (Serialise, serialise, deserialise)
-import Control.DeepSeq (NFData)
-import GHC.Generics    (Generic)
+import RIO
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
 data PrepareRequest =

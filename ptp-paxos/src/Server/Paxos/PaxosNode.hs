@@ -14,10 +14,9 @@ import qualified Server.Paxos.Learner   as L (Learner (..), create)
 import qualified Server.Paxos.Proposer  as P (Proposer (..), create)
 import           Server.PaxosApi             (PaxosApi)
 
-import           Control.Concurrent         (newEmptyMVar, putMVar, takeMVar)
-import           Control.Concurrent.Async   (Async, async)
 import           Network.HTTP.Client        (Manager)
 import           Network.Wai.Handler.Warp   (runSettings, setBeforeMainLoop, setPort, defaultSettings)
+import           RIO
 import           Servant
 
 import qualified Storage as SS

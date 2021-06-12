@@ -7,8 +7,7 @@ import Entity.ProposalNumber
 import Entity.Value
 
 import Codec.Serialise (Serialise)
-import Control.DeepSeq (NFData)
-import GHC.Generics    (Generic)
+import RIO
 
 data Proposal = Proposal { getProposalNumber :: !ProposalNumber
                          , getProposalValue  :: !Value

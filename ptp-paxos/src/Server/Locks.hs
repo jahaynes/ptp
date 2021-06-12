@@ -2,20 +2,16 @@
 
 module Server.Locks where
 
-import           Control.Concurrent.STM
-import           Control.DeepSeq            (NFData, deepseq)
-import           Control.Exception          (SomeException)
+import           Control.Concurrent.STM     (STM, atomically, retry)
 import           Control.Monad.Trans.Except (ExceptT)
-import           Control.Monad.IO.Class     (liftIO)
-import           Data.Hashable              (Hashable)
-import           StmContainers.Set      (Set)
+import           RIO                        (Hashable, NFData, SomeException, deepseq, liftIO)
 import qualified StmContainers.Set as S
 
 newtype Locked a =
     Locked a
 
 newtype Locks a =
-    Locks (Set a)
+    Locks (S.Set a)
 
 withLocked :: (NFData a, Eq k, Hashable k) => Locks k
                                            -> k

@@ -6,10 +6,9 @@ import           SubmitterApi
 import           Entity.Node (Node (..))
 import           Entity.Port (Port (..))
 
-import           Control.Concurrent       (newEmptyMVar, putMVar, takeMVar)
-import           Control.Concurrent.Async (Async, async)
 import           Network.HTTP.Client      (Manager)
 import           Network.Wai.Handler.Warp (runSettings, setBeforeMainLoop, setPort, defaultSettings)
+import           RIO
 import           Servant
 
 create :: Manager

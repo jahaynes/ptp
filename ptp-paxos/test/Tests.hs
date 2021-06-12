@@ -13,25 +13,18 @@ import           Entity.SequenceNum
 import           Entity.Topic
 import           Entity.Uniq
 import           Entity.Value
+import qualified HashMapStorage as HMS
 import           Requests.Propose
-import           Server.Paxos.Acceptor (AcceptorState)
-import           Server.Paxos.Learner  (LearnerState)
 import qualified Server.Paxos.PaxosNode  as P
-import           Server.InMemStorage     as I
 
-import           Control.Concurrent.Async (Async, cancel, forConcurrently_, replicateConcurrently)
 import           Control.Concurrent.STM
-import           Control.Monad            (forM_, when)
-import           Data.Functor             ((<&>))
 import           Data.List.Split          (chunksOf)
-import           Data.Set                 (fromList)
 import           ListT                    (toList)
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
+import           RIO hiding (assert, atomically, toList, newTVarIO)
+import           RIO.Set                  (fromList)
 import qualified StmContainers.Map as M
 import           System.Random            (randomRIO)
-import           System.Timeout           (timeout)
-
-import qualified HashMapStorage as HMS
 
 data Cluster =
     Cluster { jobs  :: ![Async ()]
@@ -52,10 +45,6 @@ startCluster http callback =
         Uniq u <- uniq
         let myId = Id u
         randomPort <- Port <$> randomRIO (20000, 30000)
-        -- as <- I.create myId "as" :: IO (LocalFileStorage AcceptorState)
-        --as <- I.create           :: IO (InMemStorage AcceptorState)
-        -- ls <- I.create myId "ls" :: IO (LocalFileStorage LearnerState)
-        --ls <- I.create           :: IO (InMemStorage LearnerState)
         ls <- HMS.create
         as <- HMS.create
         a  <- P.create http randomPort as ls callback

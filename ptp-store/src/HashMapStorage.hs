@@ -7,9 +7,7 @@ module HashMapStorage ( HashMapStorage
 import Storage
 
 import           RIO
-import           RIO.ByteString             (intercalate)
 import qualified RIO.HashMap as HM
-import           RIO.List                   (sort)
 
 newtype HashMapStorage =
     HashMapStorage (IORef (HashMap ByteString ByteString))
@@ -31,16 +29,6 @@ readStoreImpl (HashMapStorage ioref) key =
 writeStoreImpl :: (MonadIO m, Key k, StoreValue v) => HashMapStorage -> k -> v -> m ()
 writeStoreImpl (HashMapStorage ioref) key val =
     modifyIORef' ioref $ HM.insert (toKeyBytes key) (toValBytes val)
-
--- Escape? -- Lock?
-{-
-showIOImpl :: HashMapStorage -> IO ByteString
-showIOImpl (HashMapStorage ioref) = intercalate "\n"
-                                  . map (\(k, v) -> mconcat [k, ": ", v])
-                                  . sort
-                                  . HM.toList
-                                <$> readIORef ioref
--}
 
 instance LockedStorage HashMapStorage where
     readStoreL  = readStoreLImpl

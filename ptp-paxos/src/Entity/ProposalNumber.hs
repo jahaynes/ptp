@@ -6,9 +6,7 @@ module Entity.ProposalNumber where
 import Entity.Uniq (Uniq, uniq)
 
 import Codec.Serialise (Serialise)
-import Control.DeepSeq (NFData)
-import Data.Word       (Word64)
-import GHC.Generics    (Generic)
+import RIO
 
 data ProposalNumber = ProposalNumber
                     { getRoundNo :: !Word64

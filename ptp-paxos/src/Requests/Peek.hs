@@ -9,8 +9,7 @@ import Entity.Topic          (Topic)
 import Entity.Value          (Value)
 
 import Codec.Serialise (Serialise, serialise, deserialise)
-import Data.Map        (Map)
-import GHC.Generics    (Generic)
+import RIO
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
 data PeekRequest =

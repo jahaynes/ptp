@@ -10,8 +10,7 @@ import Entity.Topic       (Topic)
 
 import Codec.Serialise (Serialise, serialise, deserialise)
 import Data.Aeson      (ToJSON, FromJSON)
-import Data.Set        (Set)
-import GHC.Generics    (Generic)
+import RIO
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
 data StateResponse =
