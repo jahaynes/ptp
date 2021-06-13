@@ -19,6 +19,7 @@ library
                        Requests.State
   other-modules:       Entity.Decree
                        Requests.CreateTopic
+                       Requests.ForgetLeader
                        Requests.Submit
                        Requests.Sync
                        SubmitterApi
@@ -33,6 +34,7 @@ executable ptp-submitter
                        Entity.Decree
                        Entity.Msg
                        Requests.CreateTopic
+                       Requests.ForgetLeader
                        Requests.State
                        Requests.Submit
                        Requests.Sync

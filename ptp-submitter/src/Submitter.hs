@@ -15,6 +15,7 @@ import           Entity.SequenceNum
 import           Entity.Topic
 import           Entity.Uniq
 import           Entity.Value
+import           Requests.ForgetLeader
 import           Requests.Peek
 import           Requests.Propose
 import           Requests.State
@@ -33,10 +34,11 @@ import           System.Random           (randomRIO)
 import           Text.Printf             (printf)
 
 data Submitter m =
-    Submitter { createTopic :: !(CreateTopicRequest -> m CreateTopicResponse)
-              , sync        :: !(SyncRequest        -> m SyncResponse)
-              , submit      :: !(SubmitRequest      -> m SubmitResponse)
-              , getState    :: !(m StateResponse)
+    Submitter { createTopic  :: !(CreateTopicRequest  -> m CreateTopicResponse)
+              , sync         :: !(SyncRequest         -> m SyncResponse)
+              , submit       :: !(SubmitRequest       -> m SubmitResponse)
+              , forgetLeader :: !(ForgetLeaderRequest -> m ForgetLeaderResponse)
+              , getState     :: !(m StateResponse)
               }
 
 newtype StateMachines =
@@ -62,10 +64,11 @@ createTopicImpl (StateMachines m) (CreateTopicRequest nodes topic) = do
 create :: MonadIO m => Node -> Manager -> IO (Submitter m)
 create me http = do
     stateMachines <- StateMachines <$> M.newIO
-    pure Submitter { createTopic = liftIO . createTopicImpl stateMachines
-                   , sync        = liftIO . syncImpl http stateMachines
-                   , submit      = liftIO . submitImpl me http stateMachines
-                   , getState    = liftIO $ getStateImpl stateMachines
+    pure Submitter { createTopic  = liftIO . createTopicImpl stateMachines
+                   , sync         = liftIO . syncImpl http stateMachines
+                   , submit       = liftIO . submitImpl me http stateMachines
+                   , forgetLeader = liftIO . forgetLeaderImpl stateMachines
+                   , getState     = liftIO $ getStateImpl stateMachines
                    }
 
 syncImpl :: Manager
@@ -238,6 +241,18 @@ submitImpl me http stateMachines@(StateMachines sms) (SubmitRequest topic decree
 
             NoHighestNackRoundNo ->
                 pure $ SubmitError "Paxos cluster could not find a Nack among responses.  Not enough nodes alive?"
+
+-- Forgetting the leader will cause the next submit to try to elect self
+forgetLeaderImpl :: StateMachines
+                 -> ForgetLeaderRequest
+                 -> IO ForgetLeaderResponse
+forgetLeaderImpl (StateMachines sms) (ForgetLeaderRequest topic) =
+    atomically $ do
+        M.lookup topic sms >>= \case
+            Nothing    -> pure ForgetLeaderResponse
+            Just state -> do
+                M.insert (state {getLeader = Nothing}) topic sms
+                pure ForgetLeaderResponse
 
 -- TODO - this could be the "local" one
 chooseProposeClient :: Manager -> Set Node -> IO (ProposeClient ClientError)
