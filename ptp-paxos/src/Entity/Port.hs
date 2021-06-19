@@ -9,4 +9,4 @@ import RIO
 
 newtype Port =
     Port Int
-        deriving (Eq, Ord, Generic, Hashable, Read, Show, Serialise, NFData, FromJSON, ToJSON)
+        deriving (Eq, Ord, Generic, Hashable, Show, Serialise, NFData, FromJSON, ToJSON)

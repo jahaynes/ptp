@@ -25,7 +25,6 @@ import           ListT                   (toList)
 import           Network.HTTP.Client     (Manager)
 import           RIO hiding (Map, atomically, toList)
 import qualified RIO.Map as Map
-import           RIO.Set                 (Set)
 import qualified RIO.Set as S
 import           Servant.Client          (ClientError)
 import           StmContainers.Map       (Map)
@@ -160,7 +159,6 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
                             . fmap (const 1 <$>)
                             $ msvs
 
-            -- TODO: This parallelism can break the sqlite implementation.. why?
             forConcurrently_ missingKeys $ \key -> do
 
                 let Just val = Map.lookup key superMap

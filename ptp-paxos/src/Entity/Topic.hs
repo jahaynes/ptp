@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveAnyClass,
-             DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric,
+             GeneralizedNewtypeDeriving #-}
 
 module Entity.Topic where
 
@@ -8,5 +8,5 @@ import Data.Aeson      (FromJSON, ToJSON)
 import RIO
 
 newtype Topic =
-    Topic String
-        deriving (Eq, Ord, Hashable, Generic, Serialise, NFData, Show, FromJSON, ToJSON)
+    Topic Text
+        deriving (Eq, Hashable, Generic, Serialise, NFData, Show, FromJSON, ToJSON)

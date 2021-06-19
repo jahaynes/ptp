@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveAnyClass,
-             DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric,
+             GeneralizedNewtypeDeriving #-}
 
 module Entity.Id where
 
@@ -8,5 +8,5 @@ import Data.Aeson      (FromJSON, ToJSON)
 import RIO
 
 newtype Id =
-    Id String
-        deriving (Eq, Ord, Generic, Hashable, NFData, Read, Serialise, Show, FromJSON, ToJSON)
+    Id Text
+        deriving (Eq, Ord, Generic, Hashable, NFData, Serialise, Show, FromJSON, ToJSON)

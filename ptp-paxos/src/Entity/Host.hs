@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveAnyClass,
-             DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric,
+             GeneralizedNewtypeDeriving,
+             OverloadedStrings #-}
 
 module Entity.Host ( Host
-                   , getHostSafe
+                   , getHostString
                    , host
                    , localHost
                    ) where
@@ -10,19 +11,20 @@ module Entity.Host ( Host
 import Codec.Serialise (Serialise)
 import Data.Aeson      (FromJSON, ToJSON)
 import RIO
+import RIO.Text        (pack, unpack)
 
 newtype Host =
-    Host String
-        deriving (Eq, Read, Show, Ord, Generic, Serialise, Hashable, FromJSON, ToJSON)
+    Host Text
+        deriving (Eq, Show, Ord, Generic, Serialise, Hashable, FromJSON, ToJSON)
 
 host :: String -> Host
 host "127.0.0.1" = error "Don't use localhost"
 host "localhost" = error "Don't use localhost"
 host "::1"       = error "Don't use localhost"
-host x           = Host x
+host x           = Host $ pack x
 
 localHost :: Host
 localHost = Host "localhost"
 
-getHostSafe :: Host -> String
-getHostSafe (Host h) = h
+getHostString :: Host -> String
+getHostString (Host h) = unpack h

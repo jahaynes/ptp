@@ -10,7 +10,7 @@ module Client.PaxosClient ( ProposeClient
                           , peekBuilder
                           ) where
 
-import Entity.Host      (getHostSafe)
+import Entity.Host      (getHostString)
 import Entity.Node      (Node (..))
 import Entity.Port      (Port (Port))
 import Requests.Accept  (AcceptRequest, AcceptResponse)
@@ -43,35 +43,35 @@ propose
 
 proposeBuilder :: Manager -> Node -> ProposeClient ClientError
 proposeBuilder http node = do
-    let h = getHostSafe $ getHost node
+    let h = getHostString $ getHost node
         Port p = getPort node
         env = mkClientEnv http (BaseUrl Http h p "")
     (\prop -> runClientM (propose prop) env)
 
 prepareBuilder :: Manager -> Node -> PrepareClient ClientError
 prepareBuilder http node = do
-    let h = getHostSafe $ getHost node
+    let h = getHostString $ getHost node
         Port p = getPort node
         env = mkClientEnv http (BaseUrl Http h p "")
     (\prep -> runClientM (prepare prep) env)
 
 acceptBuilder :: Manager -> Node -> AcceptClient ClientError
 acceptBuilder http node = do
-    let h = getHostSafe $ getHost node
+    let h = getHostString $ getHost node
         Port p = getPort node
         env = mkClientEnv http (BaseUrl Http h p "")
     (\acc -> runClientM (accept acc) env)
 
 learnBuilder :: Manager -> Node -> LearnClient ClientError
 learnBuilder http node = do
-    let h = getHostSafe $ getHost node
+    let h = getHostString $ getHost node
         Port p = getPort node
         env = mkClientEnv http (BaseUrl Http h p "")
     (\lrn -> runClientM (learn lrn) env)
 
 peekBuilder :: Manager -> Node -> PeekClient ClientError
 peekBuilder http node = do
-    let h = getHostSafe $ getHost node
+    let h = getHostString $ getHost node
         Port p = getPort node
         env = mkClientEnv http (BaseUrl Http h p "")
     (\pr -> runClientM (peek pr) env)

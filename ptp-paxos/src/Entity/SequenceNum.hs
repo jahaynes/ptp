@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveAnyClass,
-             DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric,
+             GeneralizedNewtypeDeriving #-}
 
 module Entity.SequenceNum where
 

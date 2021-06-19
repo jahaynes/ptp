@@ -3,9 +3,10 @@
 
 module Entity.Value where
 
-import Codec.Serialise (Serialise)
-import RIO
+import Codec.Serialise     (Serialise)
+import RIO                 (Generic, NFData)
+import RIO.ByteString.Lazy (ByteString)
 
 newtype Value =
-    Value String
+    Value ByteString
         deriving (Eq, Generic, Serialise, NFData, Show)

@@ -1,15 +1,16 @@
-{-# LANGUAGE DeriveAnyClass,
-             DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric,
+             GeneralizedNewtypeDeriving #-}
 
 module Entity.Uniq where
 
 import Codec.Serialise (Serialise)
+import Data.UUID       (toText)
 import Data.UUID.V4    (nextRandom)
 import RIO
 
 newtype Uniq =
-    Uniq String
-        deriving (Eq, Ord, Read, Show, Generic, Serialise, NFData)
+    Uniq Text
+        deriving (Eq, Ord, Show, Generic, Serialise, NFData)
 
 uniq :: IO Uniq
-uniq = Uniq . show <$> nextRandom
+uniq = Uniq . toText <$> nextRandom

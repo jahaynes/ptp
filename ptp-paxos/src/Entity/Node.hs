@@ -15,4 +15,4 @@ data Node =
     Node { getId   :: !Id
          , getHost :: !Host
          , getPort :: !Port
-         } deriving (Eq, Read, Show, Ord, Generic, Serialise, Hashable, FromJSON, ToJSON)
+         } deriving (Eq, Show, Ord, Generic, Serialise, Hashable, FromJSON, ToJSON)

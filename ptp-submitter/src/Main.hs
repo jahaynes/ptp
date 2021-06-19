@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase,
+             OverloadedStrings #-}
 
 import           Client.SubmitterClient
 import           Entity.Decree
@@ -14,9 +15,11 @@ import           Entity.Node
 import           Entity.Port
 import           Entity.Topic
 
+import           Codec.Serialise          (serialise)
 import           Data.List.Split          (splitOn)
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
 import           RIO
+import           RIO.Text                 (pack)
 import           Servant.Client           (ClientError (ConnectionError))
 import           System.Environment       (getArgs)
 import           Text.Printf              (printf)
@@ -33,7 +36,9 @@ getPaxosCluser =
     parseNode :: String -> Node
     parseNode strNode =
         case splitOn ":" strNode of
-            [h, p] -> let p' = read p in Node (Id (printf "%s:%d" h p')) (host h) (Port p')
+            [h, p] -> let p' = read p
+                          i' = pack $ printf "%s:%d" h p'
+                      in Node (Id i') (host h) (Port p')
             _      -> error $ printf "invalid paxos node %s" strNode
 
 main :: IO ()
@@ -121,7 +126,8 @@ producer http sn = go 0 sn (Backoff 10000)
         where
         fire =
             let client = submitBuilder http subNode
-                decree = ValueDecree $ printf "%s %d" (show $ getId subNode) n
+                value  = printf "%s %d" (show $ getId subNode) n :: String
+                decree = ValueDecree $ serialise value
                 req    = SubmitRequest (Topic "test") decree
             in client req
 
