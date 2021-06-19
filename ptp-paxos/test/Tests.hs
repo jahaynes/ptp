@@ -1,6 +1,5 @@
-{-# LANGUAGE FlexibleInstances,
-             LambdaCase,
-             MultiParamTypeClasses #-}
+{-# LANGUAGE LambdaCase,
+             OverloadedStrings #-}
 
 module Main where
 
@@ -17,6 +16,7 @@ import qualified HashMapStorage as HMS
 import           Requests.Propose
 import qualified Server.Paxos.PaxosNode  as P
 
+import           Codec.Serialise          (serialise)
 import           Control.Concurrent.STM
 import           Data.List.Split          (chunksOf)
 import           ListT                    (toList)
@@ -215,7 +215,7 @@ same (x:xs) | all (==x) xs = pure x
             | otherwise    = error $ show (x:xs)
 
 randomValue :: IO Value
-randomValue = uniq <&> \(Uniq u) -> Value u
+randomValue = uniq <&> \(Uniq u) -> Value $ serialise u
 
 choice :: [a] -> IO a
 choice [] = error "No choice"
