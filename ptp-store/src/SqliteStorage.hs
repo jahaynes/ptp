@@ -1,4 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns,
+             OverloadedStrings #-}
 
 module SqliteStorage ( SqliteStorage
                      , create
@@ -68,11 +69,24 @@ readStoreImpl sqliteStorage key = do
 
 writeStoreImpl :: (MonadIO m, Key k, StoreValue v)
                => SqliteStorage -> k -> v -> m ()
-writeStoreImpl sqliteStorage key val = liftIO $ do
-    let k = toKeyBytes key
-        v = toValBytes val
+writeStoreImpl sqliteStorage key val = do
 
-    r <- atomically $ do
+    let !k = toKeyBytes key
+        !v = toValBytes val
+
+    liftIO $ bracket (atomically acquire) (atomically . release) $ \r -> do
+
+        when (r == 0) $ do
+            execute_ (conn sqliteStorage) "COMMIT TRANSACTION"
+            execute_ (conn sqliteStorage) "BEGIN TRANSACTION"
+
+        execute (conn sqliteStorage)
+            " INSERT OR REPLACE INTO store (key, val) \
+            \ VALUES                       (  ?,   ?) "
+                (SqlKey k, SqlVal v)
+
+    where
+    acquire = do
         SqliteState l r <- readTVar (state sqliteStorage)
         if l
             then retry
@@ -81,16 +95,8 @@ writeStoreImpl sqliteStorage key val = liftIO $ do
                 writeTVar (state sqliteStorage) (SqliteState True r')
                 pure r
 
-    when (r == 0) $ do
-        execute_ (conn sqliteStorage) "COMMIT TRANSACTION"
-        execute_ (conn sqliteStorage) "BEGIN TRANSACTION"
-
-    execute (conn sqliteStorage)
-        " INSERT OR REPLACE INTO store (key, val) \
-        \ VALUES                       (  ?,   ?) "
-            (SqlKey k, SqlVal v)
-
-    atomically $ writeTVar (state sqliteStorage) (SqliteState False r)
+    release r =
+        writeTVar (state sqliteStorage) (SqliteState False r)
 
 instance LockedStorage SqliteStorage where
     readStoreL  = readStoreLImpl
