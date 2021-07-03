@@ -100,12 +100,11 @@ learnService store topicLocks callback (LearnRequest nodes topic seqNum acceptor
 
                     pure mMaj
 
-        where
-        getLearnerState :: Locked TopicSeqnum -> ExceptT SomeException IO LearnerState
-        getLearnerState (Locked tsn) =
-            readStoreL (Locked2 tsn) store tsn <&> \case
-                Just f  -> f
-                Nothing -> AcceptedProposals M.empty
+    getLearnerState :: Locked TopicSeqnum -> ExceptT SomeException IO LearnerState
+    getLearnerState (Locked topicSeqnum) =
+        readStoreL (Locked2 topicSeqnum) store topicSeqnum <&> \case
+            Just f  -> f
+            Nothing -> AcceptedProposals M.empty
 
 peekService :: LockedStorage s => s
                                -> Locks TopicSeqnum
