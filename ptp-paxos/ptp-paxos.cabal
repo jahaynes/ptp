@@ -21,6 +21,7 @@ library
                        Entity.Port
                        Entity.SequenceNum
                        Entity.Topic
+                       Entity.TopicSeqnum
                        Entity.Uniq
                        Entity.Value
                        Requests.Peek
@@ -52,6 +53,7 @@ executable ptp-paxos
                        Entity.ProposalNumber
                        Entity.SequenceNum
                        Entity.Topic
+                       Entity.TopicSeqnum
                        Entity.Uniq
                        Entity.Value
                        Quorum

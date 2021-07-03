@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveAnyClass,
              DeriveGeneric,
-             FlexibleContexts,
-             FlexibleInstances,
              LambdaCase #-}
 
 module Server.Paxos.Learner ( Learner (..)
@@ -12,13 +10,12 @@ module Server.Paxos.Learner ( Learner (..)
 import           Entity.Id
 import           Entity.SequenceNum
 import           Entity.Topic
+import           Entity.TopicSeqnum
 import           Entity.Value
 import           Quorum              (threshold, majority)
 import           Requests.Learn      (LearnRequest (..), LearnResponse (..))
 import           Requests.Peek       (PeekRequest (..), PeekResponse (..))
 import           Server.Locks        (Locked (..), Locks, newLocks, withLocked)
---import           Server.Storage      (Storage)
---import qualified Server.Storage as S
 import           Storage
 
 import           Codec.Serialise            (Serialise, deserialise, serialise)
@@ -40,11 +37,6 @@ newtype Locked2 a =
 
 instance Lock (Locked2 a)
 
--- dedupe
--- TODO use a builder / make human readable?
-instance Key (Topic, SequenceNum) where
-    toKeyBytes = toStrict . serialise
-
 instance StoreValue LearnerState where
     toValBytes = toStrict . serialise
     fromValBytes = deserialise . fromStrict
@@ -64,22 +56,22 @@ create storage callback = do
                    }
  
 learnService :: LockedStorage s => s 
-                                -> Locks (Topic, SequenceNum)
+                                -> Locks TopicSeqnum
                                 -> (Topic -> SequenceNum -> Value -> ExceptT SomeException IO ())
                                 -> LearnRequest
                                 -> IO LearnResponse
 learnService store topicLocks callback (LearnRequest nodes topic seqNum acceptorId value) =
-    runExceptT runLearn <&> \case
+    runExceptT (runLearn $ TopicSeqnum topic seqNum) <&> \case
         Left  ioex -> LearnResponseError $ printf "Learn failed: " (show ioex)
         Right mVal -> LearnResponse mVal
 
     where
-    runLearn :: ExceptT SomeException IO (Maybe Value)
-    runLearn =
+    runLearn :: TopicSeqnum -> ExceptT SomeException IO (Maybe Value)
+    runLearn topicSeqnum =
 
-        withLocked topicLocks (topic, seqNum) $ \lockedTopic ->
+        withLocked topicLocks topicSeqnum $ \lockedTopicSeqnum ->
 
-            getLearnerState lockedTopic >>= \case
+            getLearnerState lockedTopicSeqnum >>= \case
 
                 Consensus c -> pure $ Just c
 
@@ -100,7 +92,7 @@ learnService store topicLocks callback (LearnRequest nodes topic seqNum acceptor
                                 -- Consensus achieved
                                 Just maj -> Consensus maj
 
-                    writeStoreL (Locked2 lockedTopic) store (topic, seqNum) $! learnerState
+                    writeStoreL (Locked2 topicSeqnum) store topicSeqnum $! learnerState
 
                     case mMaj of
                         Nothing  -> pure ()
@@ -109,14 +101,14 @@ learnService store topicLocks callback (LearnRequest nodes topic seqNum acceptor
                     pure mMaj
 
         where
-        getLearnerState :: Locked (Topic, SequenceNum) -> ExceptT SomeException IO LearnerState
-        getLearnerState (Locked (topic, seqNum)) =
-            readStoreL (Locked2 (topic, seqNum)) store (topic, seqNum) <&> \case
+        getLearnerState :: Locked TopicSeqnum -> ExceptT SomeException IO LearnerState
+        getLearnerState (Locked tsn) =
+            readStoreL (Locked2 tsn) store tsn <&> \case
                 Just f  -> f
                 Nothing -> AcceptedProposals M.empty
 
 peekService :: LockedStorage s => s
-                               -> Locks (Topic, SequenceNum)
+                               -> Locks TopicSeqnum
                                -> PeekRequest
                                -> IO PeekResponse
 peekService store topicLocks (PeekRequest topic seqNums) =
@@ -131,7 +123,9 @@ peekService store topicLocks (PeekRequest topic seqNums) =
     where
     runPeek :: SequenceNum -> ExceptT SomeException IO (Maybe (SequenceNum, Value))
     runPeek seqNum =
-        withLocked topicLocks (topic, seqNum) $ \(Locked (topic, seqNum)) ->
-            readStoreL (Locked2 (topic, seqNum)) store (topic, seqNum) <&> \case
+        let topicSeqnum = TopicSeqnum topic seqNum
+        in
+        withLocked topicLocks topicSeqnum $ \_ ->
+            readStoreL (Locked2 topicSeqnum) store topicSeqnum <&> \case
                 Just (Consensus c) -> pure (seqNum, c)
                 _                  -> Nothing
