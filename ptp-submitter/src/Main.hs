@@ -30,7 +30,7 @@ topic = Topic "test"
 getPaxosCluser :: IO (Port, [Node])
 getPaxosCluser =
     getArgs >>= \case
-        []        -> error "No paxos nodes supplied. Format is hostname1:port1 hostname2:port2"
+        []        -> error "No paxos nodes supplied. Format is localport hostname1:port1 hostname2:port2 ..."
         (p:nodes) -> pure (Port $ read p, map parseNode nodes)
     where
     parseNode :: String -> Node
