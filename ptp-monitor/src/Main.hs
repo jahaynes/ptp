@@ -68,17 +68,17 @@ draw appState = [foo appState]
 chooseCursor :: s -> [CursorLocation Name] -> Maybe (CursorLocation Name)
 chooseCursor _ _ = Nothing
 
-handleEvent :: AppState -> BrickEvent Name Tick -> EventM Name (Next AppState)
-handleEvent g (AppEvent Tick) = continue $ step g
-handleEvent g (VtyEvent (EvResize _ _)) = continue $ step g
-handleEvent g (VtyEvent (EvKey _ [])) = continue $ step g
+handleEvent :: BrickEvent Name Tick -> EventM Name AppState ()
+handleEvent (AppEvent Tick) = pure ()
+handleEvent (VtyEvent (EvResize _ _)) = pure ()
+handleEvent (VtyEvent (EvKey _ [])) = pure ()
 
-handleEvent g (VtyEvent (EvKey (KChar 'c') [MCtrl])) = error "goodbye"
+handleEvent (VtyEvent (EvKey (KChar 'c') [MCtrl])) = error "goodbye"
 
-handleEvent g x = error $ show x
+handleEvent x = error $ show x
 
-startEvent :: s -> EventM Name s
-startEvent = pure
+startEvent :: EventM Name AppState ()
+startEvent = pure ()
 
 attrs :: s -> AttrMap
 attrs _ = attrMap boring [ ]
