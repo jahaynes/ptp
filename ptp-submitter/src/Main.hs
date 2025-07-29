@@ -24,14 +24,11 @@ import           Servant.Client           (ClientError (ConnectionError))
 import           System.Environment       (getArgs)
 import           Text.Printf              (printf)
 
-topic :: Topic
-topic = Topic "test"
-
-getPaxosCluser :: IO (Port, [Node])
+getPaxosCluser :: IO (Topic, Port, [Node])
 getPaxosCluser =
     getArgs >>= \case
         []        -> error "No paxos nodes supplied. Format is localport hostname1:port1 hostname2:port2 ..."
-        (p:nodes) -> pure (Port $ read p, map parseNode nodes)
+        (topic:p:nodes) -> pure (Topic $ pack topic, Port $ read p, map parseNode nodes)
     where
     parseNode :: String -> Node
     parseNode strNode =
@@ -47,7 +44,7 @@ main = do
     hSetBuffering stdout LineBuffering
 
     printf "Submitter node started\n"
-    (port, paxosCluster) <- getPaxosCluser
+    (topic, port, paxosCluster) <- getPaxosCluser
     printf "Connecting to %s\n" (show paxosCluster)
 
     http <- newManager defaultManagerSettings
@@ -72,15 +69,16 @@ main = do
                 printf "Synced on %s from: %s to %s\n" (show topic) (show lo) (show hi)
 
         -- Generate data
-        producer http subNode
+        producer http topic subNode
 
 newtype Backoff =
     Backoff Int
 
 producer :: Manager
+         -> Topic
          -> Node
          -> IO ()
-producer http sn = go 0 sn (Backoff 10000)
+producer http topic sn = go 0 sn (Backoff 10000)
 
     where
     go :: Int
@@ -128,12 +126,12 @@ producer http sn = go 0 sn (Backoff 10000)
             let client = submitBuilder http subNode
                 value  = printf "%s %d" (show $ getId subNode) n :: String
                 decree = ValueDecree $ serialise value
-                req    = SubmitRequest (Topic "test") decree
+                req    = SubmitRequest topic decree
             in client req
 
         forgetLeader = 
             let client = forgetLeaderBuilder http sn
-                req    = ForgetLeaderRequest (Topic "test")
+                req    = ForgetLeaderRequest topic
             in client req
 
         better :: Backoff
