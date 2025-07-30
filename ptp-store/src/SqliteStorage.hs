@@ -3,6 +3,7 @@
 
 module SqliteStorage ( SqliteStorage
                      , create
+                     , vacuum
                      ) where
 
 import Storage
@@ -109,3 +110,6 @@ readStoreLImpl _locked = readStoreImpl
 writeStoreLImpl :: (MonadIO m, Lock l, Key k, StoreValue v)
                 => l -> SqliteStorage -> k -> v -> m ()
 writeStoreLImpl _locked = writeStoreImpl
+
+vacuum :: SqliteStorage -> IO ()
+vacuum sqliteStorage = execute_ (conn sqliteStorage) "COMMIT TRANSACTION; VACUUM;"
