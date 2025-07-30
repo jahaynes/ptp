@@ -10,8 +10,10 @@ import           Entity.Value
 import qualified Server.Paxos.PaxosNode as P
 import qualified SqliteStorage as SS
 
+import           Control.Exception        (AsyncException (..))
+import           Control.Exception.Safe   (tryAsync)
 import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
-import           RIO
+import           RIO hiding (tryAnyDeep)
 import           RIO.Text                 (pack, unpack)
 import           System.Environment       (getArgs)
 import           Text.Printf              (printf)
@@ -40,4 +42,20 @@ createPaxosNode :: Manager
 createPaxosNode http (Id i) port callback = do
     ls <- SS.create $ unpack i <> "learner"
     as <- SS.create $ unpack i <> "acceptor"
-    wait =<< P.create http port as ls callback
+    shutdown ls as =<< tryAsync (wait =<< P.create http port as ls callback)
+
+shutdown :: SS.SqliteStorage -> SS.SqliteStorage -> Either AsyncException () -> IO ()
+shutdown ls as result =
+    let cleanup =
+            case result of
+                Right ()           -> True
+                Left StackOverflow -> False
+                Left HeapOverflow  -> False
+                Left ThreadKilled  -> True
+                Left UserInterrupt -> True
+    in when cleanup $ do
+        putStrLn "Cleaning up Learner state"
+        SS.vacuum ls
+        putStrLn "Cleaning up Acceptor state"
+        SS.vacuum as
+        putStrLn "Done"
