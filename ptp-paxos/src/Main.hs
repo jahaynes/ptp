@@ -42,7 +42,12 @@ createPaxosNode :: Manager
 createPaxosNode http (Id i) port callback = do
     ls <- SS.create $ unpack i <> "learner"
     as <- SS.create $ unpack i <> "acceptor"
-    shutdown ls as =<< tryAsync (wait =<< P.create http port as ls callback)
+
+    result <- tryAsync $ do
+                a <- P.create http port as ls callback
+                wait a
+
+    shutdown ls as result
 
 shutdown :: SS.SqliteStorage -> SS.SqliteStorage -> Either AsyncException () -> IO ()
 shutdown ls as result =
