@@ -50,7 +50,11 @@ createPaxosNode http (Id i) port callback = do
     shutdown ls as result
 
 shutdown :: SS.SqliteStorage -> SS.SqliteStorage -> Either AsyncException () -> IO ()
-shutdown ls as result =
+shutdown ls as result = do
+
+    -- shutdown sentinel
+    -- Prevent future writes from here?
+
     let cleanup =
             case result of
                 Right ()           -> True
@@ -58,7 +62,7 @@ shutdown ls as result =
                 Left HeapOverflow  -> False
                 Left ThreadKilled  -> True
                 Left UserInterrupt -> True
-    in when cleanup $ do
+    when cleanup $ do
         putStrLn "Cleaning up Learner state"
         SS.vacuum ls
         putStrLn "Cleaning up Acceptor state"
