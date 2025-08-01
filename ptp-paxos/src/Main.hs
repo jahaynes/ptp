@@ -62,10 +62,9 @@ shutdown ls as result = do
                 Left HeapOverflow  -> False
                 Left ThreadKilled  -> True
                 Left UserInterrupt -> True
-
     when cleanup $ do
         putStrLn "Cleaning up Acceptor state"
-        SS.vacuumAndClose as
+        SS.vacuum as
         putStrLn "Cleaning up Learner state"
-        SS.vacuumAndClose ls
+        SS.vacuum ls
         putStrLn "Done"
