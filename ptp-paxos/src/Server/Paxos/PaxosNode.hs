@@ -15,7 +15,8 @@ import qualified Server.Paxos.Proposer  as P (Proposer (..), create)
 import           Server.PaxosApi             (PaxosApi)
 
 import           Network.HTTP.Client        (Manager)
-import           Network.Wai.Handler.Warp   (runSettings, setBeforeMainLoop, setPort, defaultSettings)
+import           Network.Wai.Handler.Warp hiding (Port)  -- (runSettings, setBeforeMainLoop, setPort, defaultSettings)
+import           Network.Wai.Internal (Request) -- todo don't internal
 import           RIO
 import           Servant
 
@@ -41,6 +42,8 @@ create http (Port port) acceptorStorage learnerStorage learnedCallback = do
 
     let settings = setPort port
                  . setBeforeMainLoop (putMVar ready ())
+                 . setOnException onException
+                 . setOnClose onClose
                  $ defaultSettings
 
         paxosRoutes = P.propose proposer
@@ -55,3 +58,14 @@ create http (Port port) acceptorStorage learnerStorage learnedCallback = do
     takeMVar ready
 
     pure a
+
+    where
+    onClose _ = do
+        putStrLn " Closed "
+
+    onException :: Maybe Request -> SomeException -> IO ()
+    onException _ ex = do
+
+        putStrLn $ "Exception caught: " ++ show ex
+    
+-- W.setOnClose              W.setOnException          W.setOnExceptionResponse  W.setOnOpen
