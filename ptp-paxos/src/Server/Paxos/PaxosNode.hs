@@ -22,6 +22,19 @@ import           Servant
 
 import qualified Storage as SS
 
+{-
+    TODO return this instead of a raw Async()
+    this safeShutdown should:
+        safely wait on router
+        safely wait on acceptor
+        safely wait on learner
+-}
+
+-- TODO do we really need a beforemainloop?
+
+data PaxosNode =
+    PaxosNode { safeShutdown :: !(IO ()) }
+
 create :: ( SS.LockedStorage sl,
             SS.LockedStorage sa) => Manager
                            -> Port
@@ -38,12 +51,14 @@ create http (Port port) acceptorStorage learnerStorage learnedCallback = do
     acceptor <- A.create myId acceptorStorage (learnBuilder http)
     learner  <- L.create learnerStorage learnedCallback
 
-    ready <- newEmptyMVar
+    -- readyToServe <- newEmptyMVar
+
+    -- readyToClose <- newEmptyMVar
 
     let settings = setPort port
-                 . setBeforeMainLoop (putMVar ready ())
-                 . setOnException onException
-                 . setOnClose onClose
+          --     . setBeforeMainLoop (putMVar readyToServe ())
+          --     . setInstallShutdownHandler (shutdownHandler readyToClose)
+          --     . setOnClose onClose
                  $ defaultSettings
 
         paxosRoutes = P.propose proposer
@@ -55,17 +70,14 @@ create http (Port port) acceptorStorage learnerStorage learnedCallback = do
     a <- async . runSettings settings $
         serve (Proxy :: Proxy PaxosApi) paxosRoutes
 
-    takeMVar ready
+    -- takeMVar readyToServe
 
     pure a
 
-    where
-    onClose _ = do
-        putStrLn " Closed "
-
-    onException :: Maybe Request -> SomeException -> IO ()
-    onException _ ex = do
-
-        putStrLn $ "Exception caught: " ++ show ex
-    
--- W.setOnClose              W.setOnException          W.setOnExceptionResponse  W.setOnOpen
+{-
+shutdownHandler readyToClose closeSocket = do
+    _ <- async $ do
+        takeMVar readyToClose
+        closeSocket
+    pure ()
+-}
