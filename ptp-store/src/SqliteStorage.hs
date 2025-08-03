@@ -109,3 +109,10 @@ readStoreLImpl _locked = readStoreImpl
 writeStoreLImpl :: (MonadIO m, Lock l, Key k, StoreValue v)
                 => l -> SqliteStorage -> k -> v -> m ()
 writeStoreLImpl _locked = writeStoreImpl
+
+instance Shutdown SqliteStorage where
+    shutdown ss = liftIO $ do
+        putStrLn "Signalling SqliteStorage shutdown"
+        async $ do
+            putStrLn "SqliteStorage shutdown job"
+            pure ()
