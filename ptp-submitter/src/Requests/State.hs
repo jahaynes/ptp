@@ -13,7 +13,7 @@ import Data.Aeson      (ToJSON, FromJSON)
 import RIO
 import Servant.API     (OctetStream, MimeRender (..), MimeUnrender (..))
 
-data StateResponse =
+newtype StateResponse =
     StateResponse [TopicState]
         deriving (Generic, Serialise, FromJSON, ToJSON)
 

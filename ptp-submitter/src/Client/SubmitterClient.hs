@@ -66,7 +66,7 @@ stateBuilder http node = do
     let h = getHostString $ getHost node
         Port p = getPort node
         env = mkClientEnv http (BaseUrl Http h p "")
-    (runClientM state env)
+    runClientM state env
 
 forgetLeaderBuilder :: Manager -> Node -> ForgetLeaderClient ClientError
 forgetLeaderBuilder http node = do

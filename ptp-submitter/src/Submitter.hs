@@ -99,7 +99,7 @@ syncImpl http stateMachines@(StateMachines sms) (SyncRequest topic) = do
         let numNodes = S.size cluster
             reachableNodes = length msvs
 
-        if (reachableNodes < numNodes)
+        if reachableNodes < numNodes
 
             then do
                 -- Could not reach all nodes.  'Safe side' is loop till the node comes back up
