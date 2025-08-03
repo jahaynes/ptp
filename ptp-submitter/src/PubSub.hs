@@ -1,5 +1,4 @@
-{-# LANGUAGE LambdaCase,
-             OverloadedLists #-}
+{-# LANGUAGE OverloadedLists #-}
 
 module PubSub where
 
@@ -57,32 +56,23 @@ notifyImpl (TopicStates ts) topic seqNum =
     step :: SequenceNum
          -> TopicState
          -> TopicState
-    step n s =
+    step n s
 
-        -- Ignore too small
-        if n <= getLatest s
+        | n <= getLatest s = s -- Ignore too small
 
-            then s
+        | n == next (getLatest s) = -- Good fit
 
-            else
+            -- Try again?
+            if S.size (getAlso s \\ [n]) > 0
 
-                if n == next (getLatest s)
+                -- Big enough
+                then step (setMin (getAlso s \\ [n]))
+                          (TopicState n (getAlso s \\ [n]))
 
-                    -- Good fit
-                    then
-
-                        -- Try again?
-                        if S.size (getAlso s \\ [n]) > 0
-
-                            -- Big enough
-                            then step (setMin (getAlso s \\ [n]))
-                                      (TopicState n (getAlso s \\ [n]))
-
-                            -- Too small
-                            else TopicState n (getAlso s \\ [n])
-
-                    -- Slot it in later
-                    else s { getAlso = S.insert n (getAlso s) }
+                -- Too small
+                else TopicState n (getAlso s \\ [n])
+    
+        | otherwise = s { getAlso = S.insert n (getAlso s) } -- Slot it in later
 
         where
         setMin :: Set c -> c

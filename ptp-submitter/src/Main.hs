@@ -60,7 +60,7 @@ main = do
         _ <- (createTopicBuilder http subNode) (CreateTopicRequest paxosCluster topic)
 
         -- Sync
-        (syncBuilder http subNode) (SyncRequest topic) >>= \case
+        syncBuilder http subNode (SyncRequest topic) >>= \case
 
             Left e ->
                 printf "Could not sync.  Shutting down: %s\n" (show e)
