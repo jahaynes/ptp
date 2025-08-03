@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, NumericUnderscores, ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase, ScopedTypeVariables #-}
 
 module Main where
 
@@ -9,7 +9,6 @@ import           Entity.Topic
 import           Entity.Value
 import qualified Server.Paxos.PaxosNode as P
 import qualified SqliteStorage as SS
-import           Storage (Shutdown (..))
 
 import           Control.Exception        (AsyncException (..))
 import           Control.Exception.Safe   (tryAsync)
@@ -40,24 +39,17 @@ createPaxosNode :: Id
                 -> IO ()
 createPaxosNode (Id i) port callback = do
 
-    
     http <- newManager defaultManagerSettings
     ls <- SS.create $ unpack i <> "learner"
     as <- SS.create $ unpack i <> "acceptor"
-
     service <- P.create http port as ls callback
 
-    e <- tryAsync (P.start service)
+    tryAsync (P.start service) >>= \case
 
-    case e of
-
-        Left (ex :: SomeException) -> do
-            print ex
-
+        Left (_ :: AsyncException) -> do
             P.shutdown service
-
-            a <- shutdown ls
-            b <- shutdown as
+            a <- async $ SS.shutdown ls
+            b <- async $ SS.shutdown as
             wait a
             wait b
 

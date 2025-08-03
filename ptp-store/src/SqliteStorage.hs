@@ -3,6 +3,7 @@
 
 module SqliteStorage ( SqliteStorage
                      , create
+                     , shutdown
                      ) where
 
 import Storage
@@ -10,16 +11,19 @@ import Storage
 import Control.Concurrent.STM
 import Database.SQLite.Simple
 import Database.SQLite.Simple.ToField
-import RIO hiding (atomically, newTVarIO)
+import RIO hiding (atomically, newTVarIO, readTVarIO)
 
 data SqliteStorage =
     SqliteStorage { conn  :: !Connection
                   , state :: !(TVar SqliteState)
                   }
 
+data TransactionState = NoTransaction
+                      | RemainingInserts !Int
+
 data SqliteState =
-    SqliteState { locked    :: !Bool
-                , remaining :: !Int
+    SqliteState { locked           :: !Bool
+                , transactionState :: !TransactionState
                 }
 
 newtype SqlVal =
@@ -42,14 +46,13 @@ insertionsPerTransaction = 10
 
 create :: String -> IO SqliteStorage
 create name = do
-    conn      <- open $ name <> ".db"
-    execute_ conn "CREATE TABLE IF NOT EXISTS store (key BLOB PRIMARY KEY, val BLOB)"
-    execute_ conn "BEGIN TRANSACTION"
-    state <- newTVarIO $
-        SqliteState { locked    = False
-                    , remaining = 0
+    c <- open $ name <> ".db"
+    execute_ c "CREATE TABLE IF NOT EXISTS store (key BLOB PRIMARY KEY, val BLOB)"
+    ss <- newTVarIO $
+        SqliteState { locked           = False
+                    , transactionState = NoTransaction
                     }
-    pure $ SqliteStorage conn state
+    pure $ SqliteStorage c ss
 
 instance Storage SqliteStorage where
     readStore  = readStoreImpl
@@ -71,32 +74,47 @@ writeStoreImpl :: (MonadIO m, Key k, StoreValue v)
                => SqliteStorage -> k -> v -> m ()
 writeStoreImpl sqliteStorage key val = do
 
-    let !k = toKeyBytes key
+    let c  = conn sqliteStorage
+        !k = toKeyBytes key
         !v = toValBytes val
 
-    liftIO $ bracket (atomically acquire) (atomically . release) $ \r -> do
+    liftIO . bracket_ (acquireLock sqliteStorage) (releaseLock sqliteStorage) $ do
 
-        when (r == 0) $ do
-            execute_ (conn sqliteStorage) "COMMIT TRANSACTION"
-            execute_ (conn sqliteStorage) "BEGIN TRANSACTION"
+        s <- readTVarIO (state sqliteStorage)
 
-        execute (conn sqliteStorage)
-            " INSERT OR REPLACE INTO store (key, val) \
-            \ VALUES                       (  ?,   ?) "
-                (SqlKey k, SqlVal v)
+        -- TODO check done each 10
+        let (begin, commit, ts') =
+                case transactionState s of
+                    NoTransaction   -> (True,  False, RemainingInserts (insertionsPerTransaction - 1))
+                    RemainingInserts ri
+                        | ri < 1    -> (False,  True, NoTransaction)
+                        | otherwise -> (False, False, RemainingInserts (ri - 1))
 
-    where
-    acquire = do
-        SqliteState l r <- readTVar (state sqliteStorage)
-        if l
-            then retry
-            else do
-                let r' = if r < 1 then insertionsPerTransaction else r - 1
-                writeTVar (state sqliteStorage) (SqliteState True r')
-                pure r
+        when begin $
+            execute_ c "BEGIN TRANSACTION"
 
-    release r =
-        writeTVar (state sqliteStorage) (SqliteState False r)
+        -- TODO see how good the ctrl-c handling is by sleeping here while holding the lock
+
+        -- TODO check result?
+        _ <- execute c
+                 "INSERT OR REPLACE INTO store (key, val) VALUES (?, ?)"
+                 (SqlKey k, SqlVal v)
+
+        when commit $
+            execute_ c "COMMIT TRANSACTION"
+
+        atomically $ modifyTVar' (state sqliteStorage) $ \s' -> s' { transactionState = ts' }
+
+acquireLock :: SqliteStorage -> IO ()
+acquireLock sqliteStorage = atomically $ do
+    s <- readTVar (state sqliteStorage)
+    if locked s
+        then retry
+        else modifyTVar' (state sqliteStorage) $ \s' -> s' { locked = True }
+
+releaseLock :: SqliteStorage -> IO ()
+releaseLock sqliteStorage = atomically $
+    modifyTVar' (state sqliteStorage) $ \s -> s { locked = False }
 
 instance LockedStorage SqliteStorage where
     readStoreL  = readStoreLImpl
@@ -110,9 +128,23 @@ writeStoreLImpl :: (MonadIO m, Lock l, Key k, StoreValue v)
                 => l -> SqliteStorage -> k -> v -> m ()
 writeStoreLImpl _locked = writeStoreImpl
 
-instance Shutdown SqliteStorage where
-    shutdown ss = liftIO $ do
-        putStrLn "Signalling SqliteStorage shutdown"
-        async $ do
-            putStrLn "SqliteStorage shutdown job"
-            pure ()
+shutdown :: MonadIO m => SqliteStorage -> m ()
+shutdown sqliteStorage = do
+
+    let c = conn sqliteStorage
+
+    liftIO . bracket_ (acquireLock sqliteStorage) (releaseLock sqliteStorage) $ do
+
+        s <- readTVarIO (state sqliteStorage)
+
+        let commit =
+                case transactionState s of
+                    NoTransaction      -> False
+                    RemainingInserts{} -> True
+
+        when commit $
+            execute_ c "COMMIT TRANSACTION"
+
+        execute_ c "VACUUM"
+
+        atomically $ modifyTVar' (state sqliteStorage) $ \s' -> s' { transactionState = NoTransaction }
