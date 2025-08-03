@@ -45,22 +45,17 @@ createPaxosNode (Id i) port callback = do
     ls <- SS.create $ unpack i <> "learner"
     as <- SS.create $ unpack i <> "acceptor"
 
-    {-
-    wait =<< P.create http port as ls callback
-    -}
+    service <- P.create http port as ls callback
 
-    e :: Either SomeException () <- tryAsync $ do
-
-        forever $ do
-
-            putStrLn "zzz"
-
-            threadDelay 500_000
+    e <- tryAsync (P.start service)
 
     case e of
 
-        Left ex -> do
+        Left (ex :: SomeException) -> do
             print ex
+
+            P.shutdown service
+
             a <- shutdown ls
             b <- shutdown as
             wait a
