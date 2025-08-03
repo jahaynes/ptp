@@ -18,7 +18,3 @@ class Lock l
 class LockedStorage s where
     readStoreL  :: (MonadIO m, MonadThrow m, Lock l, Key k, StoreValue v, NFData v) => l -> s -> k -> m (Maybe v)
     writeStoreL :: (MonadIO m, Lock l, Key k, StoreValue v) => l -> s -> k -> v -> m ()
-
--- Doesn't need to be in storage
-class Shutdown s where
-    shutdown :: MonadIO m => s -> m (Async ())
