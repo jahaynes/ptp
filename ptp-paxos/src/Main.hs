@@ -10,7 +10,7 @@ import           Entity.Value
 import qualified Server.Paxos.PaxosNode as P
 import qualified SqliteStorage as SS
 
-import           Network.HTTP.Client      (Manager, defaultManagerSettings, newManager)
+import           Network.HTTP.Client      (defaultManagerSettings, newManager)
 import           RIO
 import           RIO.Text                 (pack, unpack)
 import           System.Environment       (getArgs)
@@ -21,23 +21,26 @@ main = do
 
     hSetBuffering stdout LineBuffering
 
-    getArgs >>= \case
+    (myId, port) <- getArgs <&> \case
+        [myId, strPort] -> (pack myId, read strPort)
+        _               -> error "Must specify id and port"
 
-        [myId, strPort] -> do
-            let port = read strPort
-            http <- newManager defaultManagerSettings
-            printf "Paxos node started (%s %d)\n" myId port
-            createPaxosNode http (Id $ pack myId) (Port port) $ \t s v ->
-                printf "%s/%s -> %s\n" (show t) (show s) (show v)
+    printf "Starting paxos node (%s %d)\n" myId port
+    createPaxosNode (Id myId) (Port port) printCallback
 
-        _ -> error "Must specify id and port"
+printCallback :: Topic -> SequenceNum -> Value -> IO ()
+printCallback t s v = printf "%s/%s -> %s\n" (show t) (show s) (show v)
 
-createPaxosNode :: Manager
-                -> Id
+createPaxosNode :: Id
                 -> Port
                 -> (Topic -> SequenceNum -> Value -> IO ())
                 -> IO ()
-createPaxosNode http (Id i) port callback = do
+createPaxosNode (Id i) port callback = do
+
+    http <- newManager defaultManagerSettings
+
     ls <- SS.create $ unpack i <> "learner"
+
     as <- SS.create $ unpack i <> "acceptor"
+
     wait =<< P.create http port as ls callback
