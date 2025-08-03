@@ -18,7 +18,7 @@ import qualified Storage as SS
 import           Control.Concurrent.STM (retry)
 import           Control.Exception.Safe
 import           Network.HTTP.Client  (Manager)
-import           Network.Wai (Request, Response, ResponseReceived)
+import           Network.Wai (Middleware)
 import           Network.Wai.Handler.Warp   (runSettings, setBeforeMainLoop, setPort, defaultSettings)
 import           RIO hiding (bracket_)
 import           Servant
@@ -56,34 +56,30 @@ create http (Port port) acceptorStorage learnerStorage learnedCallback = do
 
     servantState <- ServantState <$> newTVarIO False <*> newTVarIO 0
 
-    let start = runSettings settings
-              . middleware servantState
-              . serve (Proxy :: Proxy PaxosApi)
-              $ paxosRoutes
+    let startf = runSettings settings
+               . shutdownMiddleware servantState
+               . serve (Proxy :: Proxy PaxosApi)
+               $ paxosRoutes
 
-    let shutdown = do
+    let shutdownf = do
             atomically $ writeTVar (tHalting servantState) True
             atomically $ do
                 ifl <- readTVar (inflight servantState)
                 when (ifl > 0) retry
 
-    pure $ ServantService { start    = start
-                          , shutdown = shutdown }
+    pure $ ServantService { start    = startf
+                          , shutdown = shutdownf }
 
 data ServantState =
     ServantState { tHalting :: !(TVar Bool)
                  , inflight :: !(TVar Int)
                  }
 
-middleware :: ServantState -> Application -> Application
-middleware servantState baseApp req respf = do
+shutdownMiddleware :: ServantState -> Middleware
+shutdownMiddleware servantState baseApp req respf = do
     halting <- atomically . readTVar $ tHalting servantState
     if halting
-        then error "shutting down"
-        else bracket_ a 
-                      b 
-                      c 
-    where
-    a = (atomically $ modifyTVar' (inflight servantState) (+1))
-    b = (atomically $ modifyTVar' (inflight servantState) (\i -> i - 1))
-    c = baseApp req respf
+        then error "shutting down" -- TODO re-route for a nice response
+        else bracket_ (atomically $ modifyTVar' (inflight servantState) (+1))
+                      (atomically $ modifyTVar' (inflight servantState) (\i -> i - 1))
+                      (baseApp req respf)
